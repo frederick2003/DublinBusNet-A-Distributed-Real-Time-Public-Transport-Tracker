@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./map.css";
+import SearchBar from "./searchbar";
 
 export default function Map() {
   const mapContainer = useRef(null);
@@ -11,6 +12,16 @@ export default function Map() {
   const lat = 53.35014;
   const zoom = 14;
   const API_KEY = import.meta.env.VITE_MAPTILER_API_KEY_HERE;
+
+  // 🔹 Function to handle search input
+  const handleSearch = (query) => {
+    console.log("User searched for:", query);
+
+    // Example: if you later want to fetch bus data by stop or route
+    // fetch(`https://your-api.com/api/buses?query=${query}`)
+    //   .then(res => res.json())
+    //   .then(data => console.log("API result:", data));
+  };
 
   // 1) Initialise map ONCE
   useEffect(() => {
@@ -48,6 +59,7 @@ export default function Map() {
 
   return (
     <div className="map-wrap">
+      <SearchBar onSearch={handleSearch} />
       <div ref={mapContainer} className="map" />
     </div>
   );
