@@ -44,6 +44,14 @@
   transition: background 0.3s ease, transform 0.1s ease;
 }
 
+.searchbar-form {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  width: 100%;
+  gap: 1rem;
+}
+
 .searchbar-button:hover {
   background-color: #005fcc;
 }
@@ -81,4 +89,37 @@
 
 .dropdown-item:hover {
   background: rgba(255, 255, 255, 0.6);
+}
+
+.dropdown-divider {
+  height: 1px;
+  background: rgba(0, 0, 0, 0.1);
+  margin: 4px 0;
+}
+
+.searchbar-input-wrapper {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.star-icon {
+  position: absolute;
+  right: 1.2rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 2rem;
+  cursor: pointer;
+  color: gold;
+  transition: color 0.25s ease;
+  user-select: none;
+}
+
+.star-icon:hover {
+  color: gold;
+}
+
+.star-icon.active {
+  color: rgb(0, 180, 0); /* green when active */
 }
