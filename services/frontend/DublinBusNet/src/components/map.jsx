@@ -20,8 +20,35 @@ export default function BusMap() {
   const zoom = 14;
   const API_KEY = import.meta.env.VITE_MAPTILER_API_KEY_HERE;
 
-  const handleSearch = (query) => {
-    console.log("User searched for:", query);
+  const handleSearch = async (route) => {
+    console.log(
+      `Calling API: GET ${API_BASE}/buses/by-route?route=${route} ...`
+    );
+
+    try {
+      const res = await fetch(`${API_BASE}/buses/by-route?route=${route}`);
+      console.log(`API call completed with status: ${res.status}`);
+
+      if (!res.ok) {
+        console.error(
+          "Failed to fetch buses by route:",
+          res.status,
+          await res.text()
+        );
+        return;
+      }
+
+      const body = await res.json();
+      console.log("Successfully fetched buses by route:", body);
+
+      if (body?.success && Array.isArray(body.data)) {
+        renderOrUpdateMarkers(body.data);
+      } else {
+        console.warn("Unexpected API response shape:", body);
+      }
+    } catch (err) {
+      console.error("Error calling /buses/by-route:", err);
+    }
   };
 
   useEffect(() => {
