@@ -14,6 +14,8 @@ export default function BusMap() {
   const map = useRef(null);
   const markersRef = useRef(new Map());
   const pollTimer = useRef(null); // optional: for auto-refresh
+  const [showAuth, setShowAuth] = React.useState(true);
+  const [authMode, setAuthMode] = React.useState("choice");
 
   const lng = -6.266155;
   const lat = 53.35014;
@@ -68,6 +70,8 @@ export default function BusMap() {
     map.current.on("load", () => {
       map.current.addControl(new maplibregl.NavigationControl(), "top-right");
 
+      loadStops();
+      loadVehiclePositions();
       // Call the API once map is loaded
       fetchAndRenderBuses();
     });
@@ -111,7 +115,130 @@ export default function BusMap() {
     }
   }
 
-  // add or update markers
+  async function loadVehiclePositions() {
+    try {
+      const res = await fetch("/data/vehicles_test.json");
+      const feed = await res.json();
+
+      if (!feed.entity || !Array.isArray(feed.entity)) {
+        console.error("GTFS-RT feed missing entity[]:", feed);
+        return;
+      }
+
+      const buses = [];
+
+      for (const entity of feed.entity) {
+        if (!entity.vehicle || !entity.vehicle.position) continue;
+
+        buses.push({
+          vehicle_id: entity.vehicle.vehicle?.id || entity.id,
+          route_id: entity.vehicle.trip?.routeId || "N/A",
+          latitude: entity.vehicle.position.latitude,
+          longitude: entity.vehicle.position.longitude,
+          delay_seconds: 0,
+        });
+      }
+
+      console.log("Parsed vehicle positions:", buses);
+
+      renderOrUpdateMarkers(buses);
+    } catch (err) {
+      console.error("Error loading vehicle positions:", err);
+    }
+  }
+
+  async function loadStops() {
+    try {
+      const response = await fetch("/data/stops.txt");
+      const text = await response.text();
+
+      const rows = text.trim().split("\n");
+      const headers = rows[0].split(",");
+
+      const features = rows
+        .slice(1)
+        .map((row) => {
+          const values = row.split(",");
+          const obj = {};
+          headers.forEach((h, i) => (obj[h] = values[i]));
+
+          const lat = parseFloat(obj.stop_lat);
+          const lon = parseFloat(obj.stop_lon);
+
+          if (Number.isNaN(lat) || Number.isNaN(lon)) return null;
+
+          return {
+            type: "Feature",
+            geometry: {
+              type: "Point",
+              coordinates: [lon, lat],
+            },
+            properties: {
+              stop_id: obj.stop_id,
+              stop_name: obj.stop_name,
+            },
+          };
+        })
+        .filter(Boolean);
+
+      const geojson = {
+        type: "FeatureCollection",
+        features,
+      };
+
+      // --- Add source ---
+      if (map.current.getSource("bus-stops")) {
+        map.current.getSource("bus-stops").setData(geojson);
+      } else {
+        map.current.addSource("bus-stops", {
+          type: "geojson",
+          data: geojson,
+        });
+
+        // --- Add fast GPU circle layer ---
+        map.current.addLayer({
+          id: "bus-stops-layer",
+          type: "circle",
+          source: "bus-stops",
+          paint: {
+            "circle-radius": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              0,
+              4,
+              100,
+              4,
+            ],
+            "circle-color": "#007AFF",
+            "circle-stroke-width": 1,
+            "circle-stroke-color": "#ffffff",
+          },
+        });
+
+        // Popup on click
+        map.current.on("click", "bus-stops-layer", (e) => {
+          const p = e.features[0].properties;
+          new maplibregl.Popup()
+            .setLngLat(e.lngLat)
+            .setHTML(`<strong>${p.stop_name}</strong><br>ID: ${p.stop_id}`)
+            .addTo(map.current);
+        });
+
+        // Change cursor on hover
+        map.current.on("mouseenter", "bus-stops-layer", () => {
+          map.current.getCanvas().style.cursor = "pointer";
+        });
+
+        map.current.on("mouseleave", "bus-stops-layer", () => {
+          map.current.getCanvas().style.cursor = "";
+        });
+      }
+    } catch (error) {
+      console.error("Failed to load stops.txt:", error);
+    }
+  }
+
   function renderOrUpdateMarkers(buses) {
     if (!map.current) return;
 
@@ -136,10 +263,17 @@ export default function BusMap() {
         existing.setLngLat([longitude, latitude]);
         if (existing.getPopup()) existing.getPopup().setHTML(popupHtml);
       } else {
-        const marker = new maplibregl.Marker({ color: "#1565c0" })
+        const el = document.createElement("div");
+        el.className = "bus-marker";
+        el.innerHTML = "🚌";
+        const marker = new maplibregl.Marker({
+          element: el,
+          anchor: "center",
+        })
           .setLngLat([longitude, latitude])
           .setPopup(new maplibregl.Popup({ offset: 12 }).setHTML(popupHtml))
           .addTo(map.current);
+
         markersRef.current.set(vehicle_id, marker);
       }
     });
@@ -156,7 +290,13 @@ export default function BusMap() {
   return (
     <div className="map-wrap">
       <SearchBar onSearch={handleSearch} />
-      <SignInPanel />
+      {showAuth && (
+        <SignInPanel
+          mode={authMode}
+          setMode={setAuthMode}
+          close={() => setShowAuth(false)}
+        />
+      )}
       <div ref={mapContainer} className="map" />
     </div>
   );
