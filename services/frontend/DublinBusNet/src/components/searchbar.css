@@ -2,14 +2,15 @@
   position: fixed;
   top: 2rem;
   left: 2rem;
-  width: 550px;
-  z-index: 1000;
 
+  width: 680px;
+  max-width: 90vw;
+
+  z-index: 1000;
   display: flex;
   justify-content: flex-start;
   align-items: center;
 
-  /* Glassmorphism effect */
   background: rgba(255, 255, 255, 0.4);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
@@ -49,7 +50,7 @@
   flex-direction: row;
   align-items: center;
   width: 100%;
-  gap: 1rem;
+  gap: 0.8rem;
 }
 
 .searchbar-button:hover {
@@ -122,4 +123,30 @@
 
 .star-icon.active {
   color: rgb(0, 180, 0); /* green when active */
+}
+
+.direction-select {
+  margin-left: 0.8rem; /* spacing after input */
+  margin-right: 3.2rem; /* make room for the star icon */
+  padding: 0.8rem 1rem;
+  font-size: 1.4rem;
+
+  background: rgba(255, 255, 255, 0.75);
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  border-radius: 10px;
+
+  cursor: pointer;
+  appearance: none;
+
+  transition: all 0.25s ease;
+}
+
+.direction-select:hover {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.direction-select:focus {
+  outline: none;
+  border-color: rgba(0, 123, 255, 0.9);
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.25);
 }
