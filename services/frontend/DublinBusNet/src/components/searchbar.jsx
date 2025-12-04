@@ -11,17 +11,18 @@ export default function SearchBar({ onSearch }) {
   const [favourites, setFavourites] = useState([]); // start empty
   const [isStarActive, setIsStarActive] = useState(false);
   const containerRef = useRef(null);
+  const [direction, setDirection] = useState(1);
   const userId = "USER123"; // mock user ID for now
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (onSearch) onSearch(query.trim());
+    if (onSearch) onSearch(query.trim(), direction);
     setShowDropdown(false);
   };
 
   const handleFavouriteClick = (fav) => {
     setQuery(fav);
-    if (onSearch) onSearch(fav);
+    if (onSearch) onSearch(fav, direction);
     setShowDropdown(false);
   };
 
@@ -249,6 +250,16 @@ export default function SearchBar({ onSearch }) {
             placeholder="Search for a route or stop..."
             className="searchbar-input"
           />
+          {/* DIRECTION SELECTOR */}
+          <select
+            className="direction-select"
+            value={direction}
+            onChange={(e) => setDirection(Number(e.target.value))}
+          >
+            <option value={0}>Dir 0</option>
+            <option value={1}>Dir 1</option>
+          </select>
+
           {/* Star icon button */}
           <span
             className={`star-icon ${isStarActive ? "active" : ""}`}

@@ -14,6 +14,8 @@ export default function BusMap() {
   const map = useRef(null);
   const markersRef = useRef(new Map());
   const pollTimer = useRef(null); // optional: for auto-refresh
+  const routeLookup = useRef(new Map());
+  const routeReverseLookup = useRef(new Map());
   const [showAuth, setShowAuth] = React.useState(true);
   const [authMode, setAuthMode] = React.useState("choice");
 
@@ -22,36 +24,116 @@ export default function BusMap() {
   const zoom = 14;
   const API_KEY = import.meta.env.VITE_MAPTILER_API_KEY_HERE;
 
-  const handleSearch = async (route) => {
+  const handleSearch = async (route_id, direction_id = 1) => {
     console.log(
-      `Calling API: GET ${API_BASE}/buses/by-route?route=${route} ...`
+      `Calling API: GET ${API_BASE}/buses/by-route?route_id=${route_id}&direction_id=${direction_id}`
     );
 
-    try {
-      const res = await fetch(`${API_BASE}/buses/by-route?route=${route}`);
-      console.log(`API call completed with status: ${res.status}`);
+    // NEW: resolve user input (e.g. "6") → GTFS internal IDs
+    const rawRouteIds = routeReverseLookup.current.get(route_id) || [];
 
-      if (!res.ok) {
-        console.error(
-          "Failed to fetch buses by route:",
-          res.status,
-          await res.text()
-        );
-        return;
-      }
+    try {
+      const res = await fetch(
+        `${API_BASE}/buses/by-route?route_id=${route_id}&direction_id=${direction_id}`
+      );
+
+      console.log(`Status: ${res.status}`);
+
+      if (!res.ok) throw new Error("Backend API offline");
 
       const body = await res.json();
-      console.log("Successfully fetched buses by route:", body);
 
       if (body?.success && Array.isArray(body.data)) {
-        renderOrUpdateMarkers(body.data);
-      } else {
-        console.warn("Unexpected API response shape:", body);
+        console.log(`Backend returned ${body.data.length} buses`);
+        return renderOrUpdateMarkers(body.data);
       }
+
+      throw new Error("Unexpected backend response");
     } catch (err) {
-      console.error("Error calling /buses/by-route:", err);
+      console.warn(
+        "Backend unavailable, falling back to static vehicles_test.json...",
+        err.message
+      );
+
+      // --- FALLBACK: Filter static feed using mapped GTFS IDs ---
+      try {
+        const staticRes = await fetch("/data/vehicles_test.json");
+        const staticJson = await staticRes.json();
+
+        if (!staticJson.entity) {
+          console.error("Static GTFS feed missing entity[]");
+          return;
+        }
+
+        const filtered = staticJson.entity
+          .map((ent) => {
+            if (!ent.vehicle || !ent.vehicle.position) return null;
+
+            return {
+              vehicle_id: ent.vehicle.vehicle?.id || ent.id,
+              route_id: ent.vehicle.trip?.routeId || "N/A",
+              direction_id: ent.vehicle.trip?.directionId ?? 0,
+              latitude: ent.vehicle.position.latitude,
+              longitude: ent.vehicle.position.longitude,
+              delay_seconds: 0,
+            };
+          })
+          .filter(
+            (bus) =>
+              bus &&
+              rawRouteIds.includes(bus.route_id) && // <-- NEW FIX
+              Number(bus.direction_id) === Number(direction_id)
+          );
+
+        console.log(
+          `Fallback static dataset returned ${filtered.length} buses for route ${route_id} (dir=${direction_id})`
+        );
+
+        return renderOrUpdateMarkers(filtered);
+      } catch (fallbackErr) {
+        console.error("Fallback static file load failed:", fallbackErr);
+      }
     }
   };
+
+  async function loadRoutes() {
+    try {
+      const res = await fetch("/data/routes.txt");
+      const text = await res.text();
+
+      const rows = text.trim().split("\n");
+      const headers = rows[0].match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g);
+
+      rows.slice(1).forEach((row) => {
+        const values = row.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g);
+        if (!values) return;
+
+        const obj = {};
+        headers.forEach((h, i) => (obj[h] = values[i]?.replace(/"/g, "")));
+
+        const short =
+          obj.route_short_name?.trim() ||
+          obj.route_long_name?.trim() ||
+          obj.route_id;
+
+        const raw = obj.route_id;
+
+        // Forward mapping (raw → user-friendly)
+        routeLookup.current.set(raw, short);
+
+        // Reverse mapping (user → raw)
+        if (!routeReverseLookup.current.has(short)) {
+          routeReverseLookup.current.set(short, []);
+        }
+        routeReverseLookup.current.get(short).push(raw);
+      });
+
+      console.log("Forward mappings:", routeLookup.current);
+      console.log("Reverse mappings:", routeReverseLookup.current);
+    } catch (err) {
+      console.error("Failed to load routes.txt:", err);
+    }
+  }
 
   useEffect(() => {
     if (map.current) return;
@@ -70,9 +152,8 @@ export default function BusMap() {
     map.current.on("load", () => {
       map.current.addControl(new maplibregl.NavigationControl(), "top-right");
 
+      loadRoutes();
       loadStops();
-      loadVehiclePositions();
-      // Call the API once map is loaded
       fetchAndRenderBuses();
     });
 
@@ -88,62 +169,56 @@ export default function BusMap() {
     };
   }, []);
 
-  // fetch bus data and render markers
   async function fetchAndRenderBuses() {
-    console.log("Calling API: GET /api/buses ...");
+    console.log("Calling API: GET /buses/active ...");
+
     try {
-      const res = await fetch(`${API_BASE}/buses`);
+      const res = await fetch(`${API_BASE}/buses/active`);
       console.log(`API call completed with status: ${res.status}`);
-      if (!res.ok) {
-        console.error("Failed to fetch /buses:", res.status);
-        return;
-      }
+
+      if (!res.ok) throw new Error("Backend not ready");
 
       const body = await res.json();
-      if (!body?.success || !Array.isArray(body?.data)) {
-        console.error("Unexpected /buses response shape:", body);
-        return;
+      if (body?.success && Array.isArray(body.data)) {
+        console.log("Loaded buses from backend:", body.data.length);
+        return renderOrUpdateMarkers(body.data);
       }
 
-      const buses = body.data;
-      console.log(`API call successful. Received ${body.data.length} buses.`);
-      renderOrUpdateMarkers(buses);
+      throw new Error("Unexpected backend response");
     } catch (err) {
-      console.error("Error fetching /buses:", err);
-    } finally {
-      console.log("Finished attempting to call /api/buses.");
-    }
-  }
+      console.warn(
+        "Backend unavailable, falling back to static /data/vehicles_test.json",
+        err.message
+      );
 
-  async function loadVehiclePositions() {
-    try {
-      const res = await fetch("/data/vehicles_test.json");
-      const feed = await res.json();
+      // --- FALLBACK ---
+      try {
+        const fallbackRes = await fetch("/data/vehicles_test.json");
+        const fallbackJson = await fallbackRes.json();
 
-      if (!feed.entity || !Array.isArray(feed.entity)) {
-        console.error("GTFS-RT feed missing entity[]:", feed);
-        return;
+        // Transform GTFS-RT into your bus object format
+        const fallbackBuses = [];
+
+        if (fallbackJson.entity) {
+          fallbackJson.entity.forEach((ent) => {
+            if (!ent.vehicle || !ent.vehicle.position) return;
+
+            fallbackBuses.push({
+              vehicle_id: ent.vehicle.vehicle?.id || ent.id,
+              route_id: ent.vehicle.trip?.routeId || "N/A",
+              direction_id: ent.vehicle.trip?.directionId ?? 0,
+              latitude: ent.vehicle.position.latitude,
+              longitude: ent.vehicle.position.longitude,
+              delay_seconds: 0,
+            });
+          });
+        }
+
+        console.log("Fallback bus count:", fallbackBuses.length);
+        return renderOrUpdateMarkers(fallbackBuses);
+      } catch (fallbackErr) {
+        console.error("Fallback failed:", fallbackErr);
       }
-
-      const buses = [];
-
-      for (const entity of feed.entity) {
-        if (!entity.vehicle || !entity.vehicle.position) continue;
-
-        buses.push({
-          vehicle_id: entity.vehicle.vehicle?.id || entity.id,
-          route_id: entity.vehicle.trip?.routeId || "N/A",
-          latitude: entity.vehicle.position.latitude,
-          longitude: entity.vehicle.position.longitude,
-          delay_seconds: 0,
-        });
-      }
-
-      console.log("Parsed vehicle positions:", buses);
-
-      renderOrUpdateMarkers(buses);
-    } catch (err) {
-      console.error("Error loading vehicle positions:", err);
     }
   }
 
@@ -206,9 +281,9 @@ export default function BusMap() {
               ["linear"],
               ["zoom"],
               0,
-              4,
+              6,
               100,
-              4,
+              6,
             ],
             "circle-color": "#007AFF",
             "circle-stroke-width": 1,
@@ -249,10 +324,11 @@ export default function BusMap() {
       if (typeof latitude !== "number" || typeof longitude !== "number") return;
 
       stillPresent.add(vehicle_id);
+      const friendlyRoute = routeLookup.current.get(route_id) || route_id;
 
       const popupHtml = `
         <div style="font-size:12px;line-height:1.2">
-          <strong>Route:</strong> ${route_id}<br/>
+          <strong>Route:</strong> ${friendlyRoute}<br/>
           <strong>Vehicle:</strong> ${vehicle_id}<br/>
           <strong>Delay:</strong> ${delay_seconds ?? 0}s
         </div>
