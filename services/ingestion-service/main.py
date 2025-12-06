@@ -1,36 +1,32 @@
-import json
 import time
-
-from fetch_gtfs import fetch_trip_updates, fetch_vehicle_positions
+from fetch_gtfs import fetch_gtfs_feed, GTFSFetchError
 from normalise import normalise_trip_updates, normalise_vehicle_positions
-from kafka_producer import publish
+from kafka_producer import publish_message
 from config import POLL_INTERVAL, KAFKA_TOPIC
-
 
 def run_ingestion():
     print(f"[Ingestion] Starting service. Polling every {POLL_INTERVAL} seconds...")
 
     while True:
-        # 1. Fetch data
-        trip_raw = fetch_trip_updates()
-        veh_raw  = fetch_vehicle_positions()
+        try:
+            feed = fetch_gtfs_feed()
 
-        # 2. Normalise
-        trip_msgs = normalise_trip_updates(trip_raw)
-        veh_msgs  = normalise_vehicle_positions(veh_raw)
+            trip_msgs = normalise_trip_updates(feed)
+            veh_msgs = normalise_vehicle_positions(feed)
 
-        all_msgs = trip_msgs + veh_msgs
+            total = 0
+            for msg in trip_msgs + veh_msgs:
+                publish_message(KAFKA_TOPIC, msg)
+                total += 1
 
-        # 3. Publish messages
-        for msg in all_msgs:
-            publish(KAFKA_TOPIC, json.dumps(msg))
+            print(f"[Ingestion] Published {total} messages to topic '{KAFKA_TOPIC}'.")
 
-        # 4. Logging
-        print(f"[Ingestion] Published {len(all_msgs)} messages.")
+        except GTFSFetchError as e:
+            print(f"[Ingestion ERROR] GTFS fetch error: {e}")
+        except Exception as e:
+            print(f"[Ingestion ERROR] Unexpected error: {e}")
 
-        # 5. Wait
         time.sleep(POLL_INTERVAL)
-
 
 if __name__ == "__main__":
     run_ingestion()

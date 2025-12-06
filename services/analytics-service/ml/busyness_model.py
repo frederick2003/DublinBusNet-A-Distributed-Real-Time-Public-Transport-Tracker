@@ -1,10 +1,13 @@
-def predict_busyness(recent_bus_count):
-    # simple baseline tool based on features that will be replaced by more complex models
-    if recent_bus_count <= 2:
-        return 2.5
-    elif recent_bus_count <= 5:
-        return 5.0
-    elif recent_bus_count <= 8:
-        return 7.5
-    else:
-        return 9.0
+def map_count_to_busyness(count: int) -> float:
+    """
+    Map a count of recent events to a busyness rating 0-10.
+    """
+    if count <= 1:
+        return 1.5
+    if count <= 3:
+        return 4.0
+    if count <= 6:
+        return 6.5
+    if count <= 10:
+        return 8.0
+    return 9.5
