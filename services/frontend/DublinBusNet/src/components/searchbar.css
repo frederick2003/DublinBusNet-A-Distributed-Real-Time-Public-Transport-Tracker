@@ -1,0 +1,152 @@
+.searchbar-container {
+  position: fixed;
+  top: 2rem;
+  left: 2rem;
+
+  width: 680px;
+  max-width: 90vw;
+
+  z-index: 1000;
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+
+  background: rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 16px;
+  box-shadow: 0 6px 25px rgba(0, 0, 0, 0.25);
+
+  padding: 1.8rem 2rem;
+}
+
+.searchbar-input {
+  flex: 1;
+  padding: 1.5rem 1.8rem;
+  font-size: 1.6rem;
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  border-radius: 12px;
+  outline: none;
+  background: rgba(255, 255, 255, 0.75);
+  transition: all 0.3s ease;
+}
+
+.searchbar-button {
+  padding: 1.5rem 2rem;
+  font-size: 1.6rem;
+  border: none;
+  border-radius: 12px;
+  background: rgba(0, 123, 255, 0.9);
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.3s ease, transform 0.1s ease;
+}
+
+.searchbar-form {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  width: 100%;
+  gap: 0.8rem;
+}
+
+.searchbar-button:hover {
+  background-color: #005fcc;
+}
+
+.dropdown-list {
+  position: absolute;
+  top: calc(100% + 0.8rem); /* appears just below the container */
+  left: 0;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.4); /* glass effect like container */
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 16px; /* match searchbar-container */
+  box-shadow: 0 6px 25px rgba(0, 0, 0, 0.15);
+
+  list-style: none;
+  margin: 0;
+  padding: 0.6rem 0;
+  z-index: 999;
+
+  overflow: hidden;
+  animation: dropdownFade 0.2s ease-out;
+}
+
+.dropdown-item {
+  padding: 1.2rem 2rem;
+  cursor: pointer;
+  font-size: 1.4rem;
+  color: #333;
+  background: transparent;
+  transition: background 0.2s ease;
+}
+
+.dropdown-item:hover {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.dropdown-divider {
+  height: 1px;
+  background: rgba(0, 0, 0, 0.1);
+  margin: 4px 0;
+}
+
+.searchbar-input-wrapper {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.star-icon {
+  position: absolute;
+  right: 1.2rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 2rem;
+  cursor: pointer;
+  color: gold;
+  transition: color 0.25s ease;
+  user-select: none;
+}
+
+.star-icon:hover {
+  color: gold;
+}
+
+.star-icon.active {
+  color: rgb(0, 180, 0); /* green when active */
+}
+
+.direction-select {
+  margin-left: 0.8rem; /* spacing after input */
+  margin-right: 3.2rem; /* make room for the star icon */
+  padding: 0.8rem 1rem;
+  font-size: 1.4rem;
+
+  background: rgba(255, 255, 255, 0.75);
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  border-radius: 10px;
+
+  cursor: pointer;
+  appearance: none;
+
+  transition: all 0.25s ease;
+}
+
+.direction-select:hover {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.direction-select:focus {
+  outline: none;
+  border-color: rgba(0, 123, 255, 0.9);
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.25);
+}
