@@ -1,37 +1,33 @@
 import requests
-from config import BASE_URL
-# from config import API_KEY  # Uncomment once API key is available
+from google.transit import gtfs_realtime_pb2
+from config import BASE_URL, NTA_API_KEY
 
-def fetch_trip_updates():
-    # If no API key, return empty list
-    # if API_KEY is None:
-    #     return []
 
-    url = f"{BASE_URL}/TripUpdates?format=json"
+class GTFSFetchError(Exception):
+    pass
+
+
+def fetch_gtfs_feed() -> gtfs_realtime_pb2.FeedMessage:
+    """
+    Fetches the GTFS-Realtime protobuf feed from the NTA API.
+    Returns a parsed FeedMessage object.
+    """
+    if not NTA_API_KEY:
+        raise GTFSFetchError(
+            "NTA_API_KEY is not set. Please set it as an environment variable."
+        )
+
     headers = {
-        # "x-api-key": API_KEY  # Uncomment once API key is available
+        "Cache-Control": "no-cache",
+        "x-api-key": NTA_API_KEY,
     }
 
     try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        return response.json().get("entity", [])
-    except Exception:
-        return []
+        resp = requests.get(BASE_URL, headers=headers, timeout=10)
+        resp.raise_for_status()
+    except Exception as e:
+        raise GTFSFetchError(f"Error fetching GTFS feed: {e}")
 
-
-def fetch_vehicle_positions():
-    # if API_KEY is None:
-    #     return []
-
-    url = f"{BASE_URL}/Vehicles?format=json"
-    headers = {
-        # "x-api-key": API_KEY
-    }
-
-    try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        return response.json().get("entity", [])
-    except Exception:
-        return []
+    feed = gtfs_realtime_pb2.FeedMessage()
+    feed.ParseFromString(resp.content)
+    return feed
