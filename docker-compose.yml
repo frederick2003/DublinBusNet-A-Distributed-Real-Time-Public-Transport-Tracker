@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./services/backend-service
+      dockerfile: Dockerfile
+    container_name: dublinbusnet_backend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=redis://redis:6379
+      - STOPS_FILE=/app/data/stops.txt
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 5s
+    volumes:
+      - ./services/frontend/DublinBusNet/public/data/stops.txt:/app/data/stops.txt:ro
+
+  redis:
+    image: redis:7-alpine
+    container_name: dublinbusnet_redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  analytics:
+    build:
+      context: ./services/analytics-service
+      dockerfile: Dockerfile
+    container_name: dublinbusnet_analytics
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./services/frontend/DublinBusNet
+      dockerfile: Dockerfile
+    container_name: dublinbusnet_frontend
+    ports:
+      - "8080:80"
+    environment:
+      - VITE_API_BASE=http://backend:3000/api
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+networks:
+  default:
+    name: dublinbusnet_default
