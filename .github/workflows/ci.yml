@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/backend-service
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install backend dependencies
+        run: npm ci
+
+      - name: Install analytics dependencies
+        run: |
+          cd ../../services/analytics-service
+          npm ci
+
+      - name: Build backend
+        run: npm run build
+
+      - name: Start analytics service
+        run: |
+          node ../../services/analytics-service/index.js &
+          echo $! > analytics.pid
+
+      - name: Wait for analytics
+        run: |
+          for i in {1..15}; do
+            if curl -sSf http://localhost:4000/health >/dev/null; then
+              echo 'analytics up'; break
+            fi
+            sleep 1
+          done
+
+      - name: Start backend
+        run: |
+          node dist/index.js &
+          echo $! > server.pid
+
+      - name: Wait for backend
+        run: |
+          for i in {1..15}; do
+            if curl -sSf http://localhost:3000/health >/dev/null; then
+              echo 'backend up'; break
+            fi
+            sleep 1
+          done
+
+      - name: Run integration checks
+        run: |
+          node scripts/check-endpoints.js
+
+      - name: Stop servers
+        if: always()
+        run: |
+          if [ -f analytics.pid ]; then kill "$(cat analytics.pid)" || true; fi
+          if [ -f server.pid ]; then kill "$(cat server.pid)" || true; fi

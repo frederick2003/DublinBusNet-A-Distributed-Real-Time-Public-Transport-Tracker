@@ -18,11 +18,15 @@ export default function BusMap() {
   const routeReverseLookup = useRef(new Map());
   const [showAuth, setShowAuth] = React.useState(true);
   const [authMode, setAuthMode] = React.useState("choice");
+  const routeLayerId = "route-shape-line";
+  const routeSourceId = "route-shape-source";
 
   const lng = -6.266155;
   const lat = 53.35014;
   const zoom = 14;
-  const API_KEY = import.meta.env.VITE_MAPTILER_API_KEY_HERE;
+  // Accept either VITE_MAPTILER_API_KEY or legacy VITE_MAPTILER_API_KEY_HERE
+  const API_KEY =
+    import.meta.env.VITE_MAPTILER_API_KEY || import.meta.env.VITE_MAPTILER_API_KEY_HERE;
 
   const handleSearch = async (route_id, direction_id = 1) => {
     console.log(
@@ -45,7 +49,10 @@ export default function BusMap() {
 
       if (body?.success && Array.isArray(body.data)) {
         console.log(`Backend returned ${body.data.length} buses`);
-        return renderOrUpdateMarkers(body.data);
+        renderOrUpdateMarkers(body.data);
+        // Fetch and render the route line after markers are placed
+        fetchAndRenderRoute(route_id, direction_id);
+        return;
       }
 
       throw new Error("Unexpected backend response");
@@ -96,6 +103,24 @@ export default function BusMap() {
     }
   };
 
+  async function fetchAndRenderRoute(route_id, direction_id = 1) {
+    if (!map.current) return;
+    try {
+      const res = await fetch(
+        `${API_BASE}/routes/shape?route_id=${route_id}&direction_id=${direction_id}`
+      );
+      if (!res.ok) throw new Error(`Route shape fetch failed: ${res.status}`);
+      const body = await res.json();
+      const shape = body?.data?.shape;
+      if (!shape) throw new Error("Missing shape in response");
+      renderRouteLine(shape);
+    } catch (err) {
+      console.warn("Failed to load route shape; will skip drawing polyline", err.message);
+      // Optional fallback: clear any existing route line
+      removeRouteLine();
+    }
+  }
+
   async function loadRoutes() {
     try {
       const res = await fetch("/data/routes.txt");
@@ -138,9 +163,18 @@ export default function BusMap() {
   useEffect(() => {
     if (map.current) return;
 
+    // If no API key is provided, fall back to a public demo style so the map still renders.
+    const styleUrl = API_KEY
+      ? `https://api.maptiler.com/maps/streets-v2/style.json?key=${API_KEY}`
+      : 'https://demotiles.maplibre.org/style.json';
+
+    if (!API_KEY) {
+      console.warn('No MapTiler API key found; using demo tiles (may be rate-limited).');
+    }
+
     map.current = new maplibregl.Map({
       container: mapContainer.current,
-      style: `https://api.maptiler.com/maps/streets-v2/style.json?key=${API_KEY}`,
+      style: styleUrl,
       center: [lng, lat],
       zoom: zoom,
       pitch: 60,
@@ -361,6 +395,38 @@ export default function BusMap() {
         markersRef.current.delete(vid);
       }
     });
+  }
+
+  function renderRouteLine(shapeGeoJson) {
+    if (!map.current) return;
+    // Remove existing
+    removeRouteLine();
+
+    map.current.addSource(routeSourceId, {
+      type: "geojson",
+      data: shapeGeoJson,
+    });
+
+    map.current.addLayer({
+      id: routeLayerId,
+      type: "line",
+      source: routeSourceId,
+      paint: {
+        "line-color": "#1b78ff",
+        "line-width": 5,
+        "line-opacity": 0.8,
+      },
+    });
+  }
+
+  function removeRouteLine() {
+    if (!map.current) return;
+    if (map.current.getLayer(routeLayerId)) {
+      map.current.removeLayer(routeLayerId);
+    }
+    if (map.current.getSource(routeSourceId)) {
+      map.current.removeSource(routeSourceId);
+    }
   }
 
   return (
