@@ -1,5 +1,5 @@
 import fs from 'fs';
-import path from 'path';
+import { resolveDataPath } from './pathResolver';
 
 export type StopRecord = {
   stop_id: string;
@@ -11,25 +11,8 @@ export type StopRecord = {
 let cachedStops: StopRecord[] | null = null;
 
 function resolveStopsPath(): string {
-  // 1) Prefer explicit env
-  if (process.env.STOPS_FILE && fs.existsSync(process.env.STOPS_FILE)) {
-    return process.env.STOPS_FILE;
-  }
-  // 2) Mounted /app/data/stops.txt (set in docker-compose)
-  const mounted = path.join(process.cwd(), 'data', 'stops.txt');
-  if (fs.existsSync(mounted)) return mounted;
-  // 3) Frontend public data (host dev path)
-  const frontendPath = path.join(
-    process.cwd(),
-    '..',
-    'frontend',
-    'DublinBusNet',
-    'public',
-    'data',
-    'stops.txt'
-  );
-  if (fs.existsSync(frontendPath)) return frontendPath;
-
+  const resolved = resolveDataPath('stops.txt', 'STOPS_FILE');
+  if (resolved) return resolved;
   throw new Error('stops.txt not found. Set STOPS_FILE or mount /app/data/stops.txt');
 }
 

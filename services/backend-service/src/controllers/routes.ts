@@ -1,7 +1,9 @@
 import { Request, Response } from 'express';
-import { getActiveBuses } from '../services/busCache';
 import { findNearestStop } from '../services/stops';
 import { getShapeForRoute } from '../services/shapes';
+import { resolveRouteIds, getRouteColor } from '../services/routeMetadata';
+import { getOrderedStopsForRoute } from '../services/stopTimes';
+import { loadStops } from '../services/stops';
 
 // Build a simple LineString from current bus positions on the requested route/direction.
 // This is an approximation until GTFS shapes are wired in.
@@ -11,57 +13,102 @@ export const routeShapeHandler = async (req: Request, res: Response) => {
     return res.status(400).json({ success: false, error: 'route_id is required' });
   }
 
+  const routeCandidates = resolveRouteIds(String(route_id));
+  if (!routeCandidates.length) {
+    return res
+      .status(404)
+      .json({ success: false, error: `No matching route found for "${route_id}"` });
+  }
+
   const dir = typeof direction_id === 'undefined' ? undefined : Number(direction_id);
 
   // 1) Try to use GTFS shapes if available
-  const gtfsShape = getShapeForRoute(String(route_id), dir);
+  let shapeRouteId: string | null = null;
+  let gtfsShape = null;
+  for (const candidate of routeCandidates) {
+    const shape = getShapeForRoute(String(candidate), dir);
+    if (shape) {
+      gtfsShape = shape;
+      shapeRouteId = String(candidate);
+      break;
+    }
+  }
+
   if (gtfsShape) {
+    const color = getRouteColor(shapeRouteId || String(route_id));
     return res.json({
       success: true,
       data: {
-        route_id,
+        route_id: shapeRouteId,
         direction_id: dir ?? null,
-        shape: gtfsShape
+        shape: gtfsShape,
+        color: color ? `#${color.replace(/^#/, '')}` : undefined
       }
     });
   }
 
-  // 2) Fallback to live bus positions if shapes are missing
-  const buses = (await getActiveBuses()).filter((b) => {
-    const routeMatch = b.route_id.toLowerCase() === String(route_id).toLowerCase();
-    const dirMatch = typeof dir === 'undefined' || Number(b.direction_id) === dir;
-    return routeMatch && dirMatch;
-  });
+  return res
+    .status(404)
+    .json({ success: false, error: 'No shape available. Provide GTFS shapes.txt + trips.txt for accurate route lines.' });
+};
 
-  if (buses.length < 3) {
+// GET /routes/stops?route_id=..&direction_id=..
+export const routeStopsHandler = (req: Request, res: Response) => {
+  const { route_id, direction_id } = req.query;
+  if (!route_id) {
+    return res.status(400).json({ success: false, error: 'route_id is required' });
+  }
+  const routeCandidates = resolveRouteIds(String(route_id));
+  if (!routeCandidates.length) {
     return res
       .status(404)
-      .json({ success: false, error: 'No shape available. Provide GTFS shapes.txt + trips.txt for accurate route lines.' });
+      .json({ success: false, error: `No matching route found for "${route_id}"` });
+  }
+  const dir = typeof direction_id === 'undefined' ? undefined : Number(direction_id);
+
+  let orderedStops = null;
+  let routeUsed: string | null = null;
+  for (const candidate of routeCandidates) {
+    orderedStops = getOrderedStopsForRoute(String(candidate), dir);
+    if (orderedStops && orderedStops.length) {
+      routeUsed = String(candidate);
+      break;
+    }
   }
 
-  // Sort deterministically to make a reasonable line from live points
-  const sorted = buses.slice().sort((a, b) => a.vehicle_id.localeCompare(b.vehicle_id));
-  const coordinates = sorted.map((b) => [b.longitude, b.latitude]);
+  if (!orderedStops || !orderedStops.length || !routeUsed) {
+    return res.status(404).json({ success: false, error: 'No stop sequence found for this route' });
+  }
 
-  const shape = {
-    type: 'Feature',
-    geometry: {
-      type: 'LineString',
-      coordinates
-    },
-    properties: {
-      route_id,
-      direction_id: dir ?? null,
-      source: 'live-buses'
-    }
-  };
+  const stopsIndex = new Map(loadStops().map((s) => [s.stop_id, s]));
+  const features = orderedStops
+    .map((st) => {
+      const stop = stopsIndex.get(st.stop_id);
+      if (!stop) return null;
+      return {
+        type: 'Feature',
+        geometry: {
+          type: 'Point',
+          coordinates: [stop.stop_lon, stop.stop_lat]
+        },
+        properties: {
+          stop_id: stop.stop_id,
+          stop_name: stop.stop_name,
+          stop_sequence: st.stop_sequence
+        }
+      };
+    })
+    .filter(Boolean);
 
   res.json({
     success: true,
     data: {
-      route_id,
+      route_id: routeUsed,
       direction_id: dir ?? null,
-      shape
+      stops: {
+        type: 'FeatureCollection',
+        features
+      }
     }
   });
 };

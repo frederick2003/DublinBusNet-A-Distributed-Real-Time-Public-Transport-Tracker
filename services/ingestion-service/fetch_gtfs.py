@@ -1,19 +1,16 @@
 import requests
-from config import BASE_URL
-# from config import API_KEY  # Uncomment once API key is available
+from config import BASE_URL, NTA_API_KEY
+
 
 def fetch_trip_updates():
-    # If no API key, return empty list
-    # if API_KEY is None:
-    #     return []
+    if not NTA_API_KEY:
+        return []
 
     url = f"{BASE_URL}/TripUpdates?format=json"
-    headers = {
-        # "x-api-key": API_KEY  # Uncomment once API key is available
-    }
+    headers = {"x-api-key": NTA_API_KEY}
 
     try:
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
         return response.json().get("entity", [])
     except Exception:
@@ -21,16 +18,14 @@ def fetch_trip_updates():
 
 
 def fetch_vehicle_positions():
-    # if API_KEY is None:
-    #     return []
+    if not NTA_API_KEY:
+        return []
 
     url = f"{BASE_URL}/Vehicles?format=json"
-    headers = {
-        # "x-api-key": API_KEY
-    }
+    headers = {"x-api-key": NTA_API_KEY}
 
     try:
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
         return response.json().get("entity", [])
     except Exception:

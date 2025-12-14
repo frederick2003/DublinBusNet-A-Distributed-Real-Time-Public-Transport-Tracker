@@ -1,4 +1,6 @@
 import redis from './redisClient';
+import { getShapes, getTrips } from './shapes';
+import { getRouteShortName } from './routeMetadata';
 
 export type BusRecord = {
   vehicle_id: string;
@@ -12,6 +14,8 @@ export type BusRecord = {
 
 const ACTIVE_KEY = 'bus:active';
 const DEFAULT_TTL = 90; // seconds
+const MAX_GTFS_SEED_BUSES = 150;
+let cachedGtfsSeed: BusRecord[] | null = null;
 
 // Seed data to keep the API usable until ingestion fills Redis.
 const seedData: BusRecord[] = [
@@ -62,6 +66,57 @@ const seedData: BusRecord[] = [
   }
 ];
 
+function buildGtfsSeed(): BusRecord[] {
+  const shapes = getShapes();
+  const trips = getTrips();
+
+  if (!trips.length || !shapes.size) return [];
+
+  const seen = new Set<string>();
+  const seed: BusRecord[] = [];
+
+  for (const trip of trips) {
+    const key = `${trip.route_id}|${trip.direction_id ?? 'x'}`;
+    if (seen.has(key)) continue;
+
+    const pts = shapes.get(trip.shape_id);
+    if (!pts || !pts.length) continue;
+
+    const midpoint = pts[Math.floor(pts.length / 2)];
+    const short = getRouteShortName(trip.route_id) || trip.route_id;
+
+    seed.push({
+      vehicle_id: `GTFS-${short}-${trip.direction_id ?? 0}-${seed.length + 1}`,
+      route_id: trip.route_id, // raw GTFS id so shapes + trips align
+      direction_id: trip.direction_id ?? 0,
+      latitude: midpoint.lat,
+      longitude: midpoint.lon,
+      last_update: new Date().toISOString(),
+      delay_seconds: 0
+    });
+
+    seen.add(key);
+    if (seed.length >= MAX_GTFS_SEED_BUSES) break;
+  }
+
+  console.log(`[busCache] generated ${seed.length} GTFS-derived seed buses`);
+  return seed;
+}
+
+async function getSeedBuses(): Promise<BusRecord[]> {
+  if (!cachedGtfsSeed) {
+    try {
+      const generated = buildGtfsSeed();
+      if (generated.length) cachedGtfsSeed = generated;
+    } catch (err) {
+      console.warn('[busCache] failed to build GTFS seed', (err as any)?.message ?? err);
+      cachedGtfsSeed = null;
+    }
+  }
+
+  return cachedGtfsSeed && cachedGtfsSeed.length ? cachedGtfsSeed : seedData;
+}
+
 export async function setActiveBuses(buses: BusRecord[], ttlSeconds = DEFAULT_TTL) {
   const payload = JSON.stringify({ buses, updated_at: new Date().toISOString() });
   await redis.set(ACTIVE_KEY, payload, 'EX', ttlSeconds);
@@ -78,13 +133,18 @@ export async function getActiveBuses(): Promise<BusRecord[]> {
     console.warn('[busCache] failed to read cache', (err as any)?.message ?? err);
   }
   // fallback to seed data if nothing cached yet
-  return seedData;
+  return getSeedBuses();
+}
+
+function isLegacySeed(buses: BusRecord[]): boolean {
+  return buses.some((b) => b.vehicle_id.startsWith('VEH'));
 }
 
 // On startup, ensure there is something in cache so the API is never empty.
 export async function ensureSeeded() {
   const existing = await getActiveBuses();
-  if (!existing || existing.length === 0) {
-    await setActiveBuses(seedData);
-  }
+  if (existing && existing.length > 0 && !isLegacySeed(existing) && existing.length > 10) return;
+
+  const seed = await getSeedBuses();
+  await setActiveBuses(seed);
 }

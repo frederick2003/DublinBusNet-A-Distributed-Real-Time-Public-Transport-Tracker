@@ -8,6 +8,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || "/api";
 // Import components.
 import SearchBar from "./searchbar";
 import SignInPanel from "./signin";
+import Navbar from "./navbar";
 
 export default function BusMap() {
   const mapContainer = useRef(null);
@@ -20,6 +21,10 @@ export default function BusMap() {
   const [authMode, setAuthMode] = React.useState("choice");
   const routeLayerId = "route-shape-line";
   const routeSourceId = "route-shape-source";
+  const routeStopsLayerId = "route-stops-layer";
+  const routeStopsSourceId = "route-stops-source";
+  const [selectedRoute, setSelectedRoute] = React.useState(null);
+  const FADE_NON_SELECTED_STOPS = true; // set to false to hide non-selected stops entirely
 
   const lng = -6.266155;
   const lat = 53.35014;
@@ -29,16 +34,18 @@ export default function BusMap() {
     import.meta.env.VITE_MAPTILER_API_KEY || import.meta.env.VITE_MAPTILER_API_KEY_HERE;
 
   const handleSearch = async (route_id, direction_id = 1) => {
+    const normalizedRoute = (route_id || "").toUpperCase();
+    setSelectedRoute({ route_id: normalizedRoute, direction_id });
+
     console.log(
-      `Calling API: GET ${API_BASE}/buses/by-route?route_id=${route_id}&direction_id=${direction_id}`
+      `Calling API: GET ${API_BASE}/buses/by-route?route_id=${normalizedRoute}&direction_id=${direction_id}`
     );
 
-    // NEW: resolve user input (e.g. "6") → GTFS internal IDs
-    const rawRouteIds = routeReverseLookup.current.get(route_id) || [];
+    const rawRouteIds = routeReverseLookup.current.get(normalizedRoute) || [];
 
     try {
       const res = await fetch(
-        `${API_BASE}/buses/by-route?route_id=${route_id}&direction_id=${direction_id}`
+        `${API_BASE}/buses/by-route?route_id=${normalizedRoute}&direction_id=${direction_id}`
       );
 
       console.log(`Status: ${res.status}`);
@@ -50,8 +57,7 @@ export default function BusMap() {
       if (body?.success && Array.isArray(body.data)) {
         console.log(`Backend returned ${body.data.length} buses`);
         renderOrUpdateMarkers(body.data);
-        // Fetch and render the route line after markers are placed
-        fetchAndRenderRoute(route_id, direction_id);
+        fetchAndRenderRoute(normalizedRoute, direction_id);
         return;
       }
 
@@ -62,7 +68,6 @@ export default function BusMap() {
         err.message
       );
 
-      // --- FALLBACK: Filter static feed using mapped GTFS IDs ---
       try {
         const staticRes = await fetch("/data/vehicles_test.json");
         const staticJson = await staticRes.json();
@@ -88,12 +93,12 @@ export default function BusMap() {
           .filter(
             (bus) =>
               bus &&
-              rawRouteIds.includes(bus.route_id) && // <-- NEW FIX
+              rawRouteIds.includes(bus.route_id) &&
               Number(bus.direction_id) === Number(direction_id)
           );
 
         console.log(
-          `Fallback static dataset returned ${filtered.length} buses for route ${route_id} (dir=${direction_id})`
+          `Fallback static dataset returned ${filtered.length} buses for route ${normalizedRoute} (dir=${direction_id})`
         );
 
         return renderOrUpdateMarkers(filtered);
@@ -112,12 +117,32 @@ export default function BusMap() {
       if (!res.ok) throw new Error(`Route shape fetch failed: ${res.status}`);
       const body = await res.json();
       const shape = body?.data?.shape;
+      const color = body?.data?.color;
       if (!shape) throw new Error("Missing shape in response");
-      renderRouteLine(shape);
+      renderRouteLine(shape, color);
+      await fetchAndRenderRouteStops(route_id, direction_id, color);
     } catch (err) {
       console.warn("Failed to load route shape; will skip drawing polyline", err.message);
       // Optional fallback: clear any existing route line
       removeRouteLine();
+      removeRouteStops();
+    }
+  }
+
+  async function fetchAndRenderRouteStops(route_id, direction_id = 1, color) {
+    if (!map.current) return;
+    try {
+      const res = await fetch(
+        `${API_BASE}/routes/stops?route_id=${route_id}&direction_id=${direction_id}`
+      );
+      if (!res.ok) throw new Error(`Route stops fetch failed: ${res.status}`);
+      const body = await res.json();
+      const stops = body?.data?.stops;
+      if (!stops) throw new Error("Missing stops in response");
+      renderRouteStops(stops, color);
+    } catch (err) {
+      console.warn("Failed to load route stops", err.message);
+      removeRouteStops();
     }
   }
 
@@ -185,6 +210,26 @@ export default function BusMap() {
     // Add controls when map is ready
     map.current.on("load", () => {
       map.current.addControl(new maplibregl.NavigationControl(), "top-right");
+
+      // Provide a fallback icon for any missing sprite images to silence warnings.
+      map.current.on("styleimagemissing", (e) => {
+        const id = e.id;
+        if (map.current.hasImage(id)) return;
+        const size = 32;
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#ff3b30";
+        ctx.beginPath();
+        ctx.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2);
+        ctx.fill();
+        map.current.addImage(id, {
+          width: size,
+          height: size,
+          data: ctx.getImageData(0, 0, size, size).data,
+        });
+      });
 
       loadRoutes();
       loadStops();
@@ -397,7 +442,7 @@ export default function BusMap() {
     });
   }
 
-  function renderRouteLine(shapeGeoJson) {
+  function renderRouteLine(shapeGeoJson, color) {
     if (!map.current) return;
     // Remove existing
     removeRouteLine();
@@ -412,7 +457,7 @@ export default function BusMap() {
       type: "line",
       source: routeSourceId,
       paint: {
-        "line-color": "#1b78ff",
+        "line-color": color || "#ff3b30",
         "line-width": 5,
         "line-opacity": 0.8,
       },
@@ -429,17 +474,90 @@ export default function BusMap() {
     }
   }
 
+  function renderRouteStops(stopsGeoJson, color) {
+    if (!map.current) return;
+    removeRouteStops();
+
+    map.current.addSource(routeStopsSourceId, {
+      type: "geojson",
+      data: stopsGeoJson,
+    });
+
+    map.current.addLayer({
+      id: routeStopsLayerId,
+      type: "circle",
+      source: routeStopsSourceId,
+      paint: {
+        "circle-radius": 4,
+        "circle-color": color || "#ff3b30",
+        "circle-stroke-width": 1,
+        "circle-stroke-color": "#ffffff",
+      },
+    });
+
+    updateStopVisibility(true, color);
+  }
+
+  function removeRouteStops() {
+    if (!map.current) return;
+    if (map.current.getLayer(routeStopsLayerId)) {
+      map.current.removeLayer(routeStopsLayerId);
+    }
+    if (map.current.getSource(routeStopsSourceId)) {
+      map.current.removeSource(routeStopsSourceId);
+    }
+    updateStopVisibility(false);
+  }
+
+  function updateStopVisibility(onlySelectedRoute, color) {
+    if (!map.current) return;
+    const baseLayer = map.current.getLayer("bus-stops-layer");
+    if (baseLayer) {
+      if (onlySelectedRoute) {
+        if (FADE_NON_SELECTED_STOPS) {
+          map.current.setLayoutProperty("bus-stops-layer", "visibility", "visible");
+          map.current.setPaintProperty("bus-stops-layer", "circle-opacity", 0.12);
+          map.current.setPaintProperty(
+            "bus-stops-layer",
+            "circle-color",
+            "#9bbce9"
+          );
+        } else {
+          map.current.setLayoutProperty("bus-stops-layer", "visibility", "none");
+        }
+      } else {
+        map.current.setLayoutProperty("bus-stops-layer", "visibility", "visible");
+        map.current.setPaintProperty("bus-stops-layer", "circle-opacity", 1);
+        map.current.setPaintProperty("bus-stops-layer", "circle-color", "#007AFF");
+      }
+    }
+
+    const selectedLayer = map.current.getLayer(routeStopsLayerId);
+    if (selectedLayer) {
+      map.current.setLayoutProperty(
+        routeStopsLayerId,
+        "visibility",
+        onlySelectedRoute ? "visible" : "none"
+      );
+    }
+  }
+
   return (
-    <div className="map-wrap">
-      <SearchBar onSearch={handleSearch} />
-      {showAuth && (
-        <SignInPanel
-          mode={authMode}
-          setMode={setAuthMode}
-          close={() => setShowAuth(false)}
-        />
-      )}
-      <div ref={mapContainer} className="map" />
+    <div className="page-shell">
+      <Navbar />
+      <main id="home">
+        <div className="map-wrap">
+          <SearchBar onSearch={handleSearch} />
+          {showAuth && (
+            <SignInPanel
+              mode={authMode}
+              setMode={setAuthMode}
+              close={() => setShowAuth(false)}
+            />
+          )}
+          <div ref={mapContainer} className="map" />
+        </div>
+      </main>
     </div>
   );
 }

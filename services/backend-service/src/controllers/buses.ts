@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { getActiveBuses, BusRecord } from '../services/busCache';
+import { resolveRouteIds } from '../services/routeMetadata';
 
 // GET /buses/active
 export const activeBusesHandler = async (_req: Request, res: Response) => {
@@ -15,9 +16,12 @@ export const busesByRouteHandler = async (req: Request, res: Response) => {
     return res.status(400).json({ success: false, error: 'route_id is required' });
   }
 
+  const routeCandidates = resolveRouteIds(String(route_id));
   const buses = await getActiveBuses();
   const filtered = buses.filter((bus) => {
-    const routeMatch = bus.route_id.toLowerCase() === String(route_id).toLowerCase();
+    const routeMatch = routeCandidates.some(
+      (candidate) => bus.route_id.toLowerCase() === String(candidate).toLowerCase()
+    );
     const dirMatch =
       typeof direction_id === 'undefined' || Number(bus.direction_id) === Number(direction_id);
     return routeMatch && dirMatch;
