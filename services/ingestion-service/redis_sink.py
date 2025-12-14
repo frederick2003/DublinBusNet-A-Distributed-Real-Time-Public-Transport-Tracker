@@ -1,7 +1,7 @@
 import json
 import redis
 from typing import List, Dict
-from config import REDIS_URL, BUS_KEY, BUS_TTL
+from config_backend import REDIS_URL, BUS_KEY, BUS_TTL
 
 
 def get_client():

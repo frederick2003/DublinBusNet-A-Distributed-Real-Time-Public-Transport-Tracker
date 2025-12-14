@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   backend:
@@ -53,18 +53,19 @@ services:
       - backend
     restart: unless-stopped
 
-  ingestion:
+  ingestion-backend:
+    env_file:
+      - .env
     build:
       context: ./services/ingestion-service
-      dockerfile: Dockerfile
-    container_name: dublinbusnet_ingestion
+      dockerfile: Dockerfile.backend
+    container_name: dublinbusnet_ingestion_backend
     environment:
       - REDIS_URL=redis://redis:6379
       - POLL_INTERVAL=30
-      - STATIC_VEH_FILE=/app/data/vehicles_test.json
-      # - NTA_API_KEY=your_key_here
-    volumes:
-      - ./services/frontend/DublinBusNet/public/data/vehicles_test.json:/app/data/vehicles_test.json:ro
+      # - STATIC_VEH_FILE=/app/data/vehicles_test.json
+    # volumes:
+    # - ./services/frontend/DublinBusNet/public/data/vehicles_test.json:/app/data/vehicles_test.json:ro
     depends_on:
       - redis
     restart: unless-stopped
