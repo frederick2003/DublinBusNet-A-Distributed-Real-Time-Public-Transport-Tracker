@@ -2,7 +2,13 @@ import { Router } from 'express';
 import { healthHandler } from './controllers/health';
 import { predictHandler } from './controllers/predict';
 import { activeBusesHandler, busesByRouteHandler, busesByStopHandler } from './controllers/buses';
-import { routePathHandler, routeShapeHandler, closestStopHandler } from './controllers/routes';
+import { routePathHandler, routeShapeHandler, closestStopHandler, routeStopsHandler } from './controllers/routes';
+import {
+  userFavouriteRoutesHandler,
+  userMostCommonRouteHandler,
+  userLastRouteHandler,
+  addFavouriteRouteHandler
+} from './controllers/userRoutes';
 import { rateLimiterMiddleware } from './middleware/rateLimiter';
 
 const router = Router();
@@ -24,5 +30,12 @@ router.get('/buses/by-stop', busesByStopHandler);
 router.get('/routes/shape', routeShapeHandler);
 router.get('/routes/path', routePathHandler);
 router.get('/routes/closest-stop', closestStopHandler);
+router.get('/routes/stops', routeStopsHandler);
+
+// Stubbed user route endpoints for the search bar UX
+router.get('/users/:user_id/routes/favourite', userFavouriteRoutesHandler);
+router.get('/users/:user_id/routes/common', userMostCommonRouteHandler);
+router.get('/users/:user_id/routes/last', userLastRouteHandler);
+router.post('/users/:user_id/routes/favourite', addFavouriteRouteHandler);
 
 export default router;

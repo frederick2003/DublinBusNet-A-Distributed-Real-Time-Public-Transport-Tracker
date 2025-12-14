@@ -1,9 +1,10 @@
 **/.env
 .env
-<<<<<<< HEAD
 services/**/.env
 __pycache__/
 *.pyc
-=======
 services/**/.env
->>>>>>> 6e5831b3cabc5cdad823abb35142bd2c8a8b6855
+services/**/.env
+__pycache__/
+*.pyc
+services/**/.env

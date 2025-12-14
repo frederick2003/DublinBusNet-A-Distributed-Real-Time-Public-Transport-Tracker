@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { resolveDataPath } from './pathResolver';
 
 type ShapePoint = {
   shape_id: string;
@@ -9,6 +10,7 @@ type ShapePoint = {
 };
 
 type TripRow = {
+  trip_id: string;
   route_id: string;
   direction_id: number | null;
   shape_id: string;
@@ -24,22 +26,7 @@ function parseCsv(line: string): string[] {
 }
 
 function resolvePath(envKey: string, filename: string): string | null {
-  if (process.env[envKey] && fs.existsSync(process.env[envKey] as string)) {
-    return process.env[envKey] as string;
-  }
-  const mounted = path.join(process.cwd(), 'data', filename);
-  if (fs.existsSync(mounted)) return mounted;
-  const frontendPath = path.join(
-    process.cwd(),
-    '..',
-    'frontend',
-    'DublinBusNet',
-    'public',
-    'data',
-    filename
-  );
-  if (fs.existsSync(frontendPath)) return frontendPath;
-  return null;
+  return resolveDataPath(filename, envKey);
 }
 
 function loadShapes(): Map<string, ShapePoint[]> {
@@ -53,12 +40,12 @@ function loadShapes(): Map<string, ShapePoint[]> {
   }
   const raw = fs.readFileSync(shapePath, 'utf-8').trim();
   const lines = raw.split('\n');
-  const headers = parseCsv(lines[0]);
+  const headers = parseCsv(lines[0]).map((h) => h.trim());
   for (const line of lines.slice(1)) {
     const cols = parseCsv(line);
     const obj: Record<string, string> = {};
-    headers.forEach((h, i) => (obj[h] = cols[i] ?? ''));
-    const shape_id = obj['shape_id'];
+    headers.forEach((h, i) => (obj[h] = cols[i]?.trim() ?? ''));
+    const shape_id = obj['shape_id']?.trim();
     const lat = Number(obj['shape_pt_lat']);
     const lon = Number(obj['shape_pt_lon']);
     const seq = Number(obj['shape_pt_sequence']);
@@ -86,18 +73,19 @@ function loadTrips(): TripRow[] {
   }
   const raw = fs.readFileSync(tripsPath, 'utf-8').trim();
   const lines = raw.split('\n');
-  const headers = parseCsv(lines[0]);
+  const headers = parseCsv(lines[0]).map((h) => h.trim());
   for (const line of lines.slice(1)) {
     const cols = parseCsv(line);
     const obj: Record<string, string> = {};
-    headers.forEach((h, i) => (obj[h] = cols[i] ?? ''));
+    headers.forEach((h, i) => (obj[h] = cols[i]?.trim() ?? ''));
     rows.push({
-      route_id: obj['route_id'],
+      trip_id: obj['trip_id']?.trim(),
+      route_id: obj['route_id']?.trim(),
       direction_id:
         obj['direction_id'] === undefined || obj['direction_id'] === ''
           ? null
           : Number(obj['direction_id']),
-      shape_id: obj['shape_id']
+      shape_id: obj['shape_id']?.trim()
     });
   }
   console.log(`[trips] loaded ${rows.length} trips from ${tripsPath}`);
@@ -141,3 +129,14 @@ export function getShapeForRoute(routeId: string, direction?: number | null) {
     }
   };
 }
+
+// Expose raw caches for other services (e.g., generating seed buses)
+export function getShapes(): Map<string, ShapePoint[]> {
+  return loadShapes();
+}
+
+export function getTrips(): TripRow[] {
+  return loadTrips();
+}
+
+export type { ShapePoint, TripRow };

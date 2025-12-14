@@ -5,9 +5,19 @@ export default function SignInPanel({ mode, setMode, close }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
+  const Header = ({ title }) => (
+    <div className="signin-header">
+      <div className="signin-title">{title}</div>
+      <button className="signin-close" onClick={close} aria-label="Close sign in">
+        ×
+      </button>
+    </div>
+  );
+
   if (mode === "choice") {
     return (
       <div className="signin-container">
+        <Header title="Welcome" />
         <div className="signin-buttons">
           <button
             className="signin-btn"
@@ -36,6 +46,7 @@ export default function SignInPanel({ mode, setMode, close }) {
   if (mode === "signin") {
     return (
       <div className="signin-container">
+        <Header title="Sign in" />
         <div className="signin-form">
           <input
             className="signin-input"

@@ -3,11 +3,13 @@ import "./navbar.css";
 
 export default function Navbar() {
   return (
-    <div className="heading">
-      <h1>
-        -------------------------- Welcome to DublinBusNet
-        --------------------------
-      </h1>
-    </div>
+    <header className="nav-shell">
+      <div className="nav-brand">Dublin Bus Net</div>
+      <nav className="nav-links">
+        <a href="/">Home</a>
+        <a href="/about.html">About</a>
+        <a href="/contact.html">Contact</a>
+      </nav>
+    </header>
   );
 }

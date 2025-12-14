@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
 import "./searchbar.css";
 
-const API_BASE = import.meta.env.VITE_BASE_API || "/api";
+// Use the same API base env var as the map so requests hit the backend service.
+const API_BASE = import.meta.env.VITE_API_BASE || "/api";
 
 export default function SearchBar({ onSearch }) {
   const [query, setQuery] = useState("");
@@ -16,7 +17,9 @@ export default function SearchBar({ onSearch }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (onSearch) onSearch(query.trim(), direction);
+    const normalized = query.trim().toUpperCase();
+    setQuery(normalized);
+    if (onSearch) onSearch(normalized, direction);
     setShowDropdown(false);
   };
 
@@ -238,7 +241,8 @@ export default function SearchBar({ onSearch }) {
             type="text"
             value={query}
             onChange={(e) => {
-              setQuery(e.target.value);
+              // Always store and display uppercase so route short names match GTFS.
+              setQuery(e.target.value.toUpperCase());
               setIsStarActive(false);
             }}
             onFocus={() => {

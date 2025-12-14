@@ -6,6 +6,7 @@ from config import POLL_INTERVAL, KAFKA_TOPIC
 
 def run_ingestion():
     print(f"[Ingestion] Starting service. Polling every {POLL_INTERVAL} seconds...")
+    redis_client = get_client()
 
     while True:
         try:
