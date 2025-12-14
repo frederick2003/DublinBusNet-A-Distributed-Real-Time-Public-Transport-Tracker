@@ -2,6 +2,7 @@ import os
 
 # NTA API key (set via environment variable)
 NTA_API_KEY = os.getenv("NTA_API_KEY", "").strip() # Put API key here (NTA_API_KEY, ...)
+
 # GTFS-Realtime combined feed endpoint
 BASE_URL = "https://api.nationaltransport.ie/gtfsr/v2/gtfsr"
 
