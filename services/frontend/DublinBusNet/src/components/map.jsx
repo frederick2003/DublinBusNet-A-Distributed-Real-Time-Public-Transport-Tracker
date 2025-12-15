@@ -10,15 +10,25 @@ import SearchBar from "./searchbar";
 import SignInPanel from "./signin";
 import Navbar from "./navbar";
 
-export default function BusMap() {
+export default function BusMap({ auth }) {
+  const { user, token, loading, signIn, signUp, signOut, setFavouriteRoute } =
+    auth;
   const mapContainer = useRef(null);
   const map = useRef(null);
   const markersRef = useRef(new Map());
   const pollTimer = useRef(null); // optional: for auto-refresh
   const routeLookup = useRef(new Map());
   const routeReverseLookup = useRef(new Map());
-  const [showAuth, setShowAuth] = React.useState(true);
+  const [showAuth, setShowAuth] = React.useState(false);
   const [authMode, setAuthMode] = React.useState("choice");
+  React.useEffect(() => {
+    if (user) {
+      setShowAuth(false); // logged in → hide
+    } else {
+      setShowAuth(true); // guest → show
+    }
+  }, [user]);
+
   const routeLayerId = "route-shape-line";
   const routeSourceId = "route-shape-source";
   const routeStopsLayerId = "route-stops-layer";
@@ -31,7 +41,8 @@ export default function BusMap() {
   const zoom = 14;
   // Accept either VITE_MAPTILER_API_KEY or legacy VITE_MAPTILER_API_KEY_HERE
   const API_KEY =
-    import.meta.env.VITE_MAPTILER_API_KEY || import.meta.env.VITE_MAPTILER_API_KEY_HERE;
+    import.meta.env.VITE_MAPTILER_API_KEY ||
+    import.meta.env.VITE_MAPTILER_API_KEY_HERE;
 
   const handleSearch = async (route_id, direction_id = 1) => {
     const normalizedRoute = (route_id || "").toUpperCase();
@@ -45,7 +56,10 @@ export default function BusMap() {
 
     try {
       const res = await fetch(
-        `${API_BASE}/buses/by-route?route_id=${normalizedRoute}&direction_id=${direction_id}`
+        `${API_BASE}/buses/by-route?route_id=${normalizedRoute}&direction_id=${direction_id}`,
+        {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        }
       );
 
       console.log(`Status: ${res.status}`);
@@ -58,6 +72,9 @@ export default function BusMap() {
         console.log(`Backend returned ${body.data.length} buses`);
         renderOrUpdateMarkers(body.data);
         fetchAndRenderRoute(normalizedRoute, direction_id);
+        if (auth?.refreshUser) {
+          auth.refreshUser();
+        }
         return;
       }
 
@@ -122,7 +139,10 @@ export default function BusMap() {
       renderRouteLine(shape, color);
       await fetchAndRenderRouteStops(route_id, direction_id, color);
     } catch (err) {
-      console.warn("Failed to load route shape; will skip drawing polyline", err.message);
+      console.warn(
+        "Failed to load route shape; will skip drawing polyline",
+        err.message
+      );
       // Optional fallback: clear any existing route line
       removeRouteLine();
       removeRouteStops();
@@ -191,10 +211,12 @@ export default function BusMap() {
     // If no API key is provided, fall back to a public demo style so the map still renders.
     const styleUrl = API_KEY
       ? `https://api.maptiler.com/maps/streets-v2/style.json?key=${API_KEY}`
-      : 'https://demotiles.maplibre.org/style.json';
+      : "https://demotiles.maplibre.org/style.json";
 
     if (!API_KEY) {
-      console.warn('No MapTiler API key found; using demo tiles (may be rate-limited).');
+      console.warn(
+        "No MapTiler API key found; using demo tiles (may be rate-limited)."
+      );
     }
 
     map.current = new maplibregl.Map({
@@ -515,20 +537,40 @@ export default function BusMap() {
     if (baseLayer) {
       if (onlySelectedRoute) {
         if (FADE_NON_SELECTED_STOPS) {
-          map.current.setLayoutProperty("bus-stops-layer", "visibility", "visible");
-          map.current.setPaintProperty("bus-stops-layer", "circle-opacity", 0.12);
+          map.current.setLayoutProperty(
+            "bus-stops-layer",
+            "visibility",
+            "visible"
+          );
+          map.current.setPaintProperty(
+            "bus-stops-layer",
+            "circle-opacity",
+            0.12
+          );
           map.current.setPaintProperty(
             "bus-stops-layer",
             "circle-color",
             "#9bbce9"
           );
         } else {
-          map.current.setLayoutProperty("bus-stops-layer", "visibility", "none");
+          map.current.setLayoutProperty(
+            "bus-stops-layer",
+            "visibility",
+            "none"
+          );
         }
       } else {
-        map.current.setLayoutProperty("bus-stops-layer", "visibility", "visible");
+        map.current.setLayoutProperty(
+          "bus-stops-layer",
+          "visibility",
+          "visible"
+        );
         map.current.setPaintProperty("bus-stops-layer", "circle-opacity", 1);
-        map.current.setPaintProperty("bus-stops-layer", "circle-color", "#007AFF");
+        map.current.setPaintProperty(
+          "bus-stops-layer",
+          "circle-color",
+          "#007AFF"
+        );
       }
     }
 
@@ -547,12 +589,18 @@ export default function BusMap() {
       <Navbar />
       <main id="home">
         <div className="map-wrap">
-          <SearchBar onSearch={handleSearch} />
+          <SearchBar
+            onSearch={handleSearch}
+            user={user}
+            setFavouriteRoute={setFavouriteRoute}
+          />
           {showAuth && (
             <SignInPanel
               mode={authMode}
               setMode={setAuthMode}
               close={() => setShowAuth(false)}
+              onSignIn={signIn}
+              onSignUp={signUp}
             />
           )}
           <div ref={mapContainer} className="map" />
