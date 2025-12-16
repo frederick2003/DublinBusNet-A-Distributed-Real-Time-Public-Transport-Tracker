@@ -1,14 +1,14 @@
-import { Router } from 'express';
-import { db } from '../db';
-import { requireAuth, AuthenticatedRequest } from '../middleware/auth';
+import { Router } from "express";
+import { db } from "../db";
+import { requireAuth, AuthenticatedRequest } from "../middleware/auth";
 
 const router = Router();
 
 /**
- * PUT /api/users/favourite-route
+ * PUT /api/users/me/favourite-route
  */
 router.put(
-  '/favourite-route',
+  '/me/favourite-route',
   requireAuth,
   (req: AuthenticatedRequest, res) => {
     const { route_id } = req.body;
@@ -21,8 +21,12 @@ router.put(
       `UPDATE users SET favourite_route = ? WHERE id = ?`
     ).run(route_id, req.user!.userId);
 
-    return res.json({ success: true });
+    return res.json({
+      success: true,
+      favourite_route: route_id,
+    });
   }
 );
+
 
 export default router;
