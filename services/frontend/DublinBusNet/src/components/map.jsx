@@ -232,35 +232,11 @@ export default function BusMap({ auth }) {
     // Add controls when map is ready
     map.current.on("load", () => {
       map.current.addControl(new maplibregl.NavigationControl(), "top-right");
-
-      // Provide a fallback icon for any missing sprite images to silence warnings.
-      map.current.on("styleimagemissing", (e) => {
-        const id = e.id;
-        if (map.current.hasImage(id)) return;
-        const size = 32;
-        const canvas = document.createElement("canvas");
-        canvas.width = size;
-        canvas.height = size;
-        const ctx = canvas.getContext("2d");
-        ctx.fillStyle = "#ff3b30";
-        ctx.beginPath();
-        ctx.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2);
-        ctx.fill();
-        map.current.addImage(id, {
-          width: size,
-          height: size,
-          data: ctx.getImageData(0, 0, size, size).data,
-        });
-      });
-
       loadRoutes();
       loadStops();
-      fetchAndRenderBuses();
     });
 
     return () => {
-      // Cleanup on unmount
-      if (pollTimer.current) clearInterval(pollTimer.current);
       if (map.current) {
         map.current.remove();
         map.current = null;
@@ -270,7 +246,67 @@ export default function BusMap({ auth }) {
     };
   }, []);
 
+  useEffect(() => {
+  if (!map.current) return;
+
+  // Clear any existing polling
+  if (pollTimer.current) {
+    clearInterval(pollTimer.current);
+    pollTimer.current = null;
+  }
+
+  // Decide what to poll based on state
+  const poll = () => {
+    if (selectedRoute) {
+      const { route_id, direction_id } = selectedRoute;
+      fetchAndRenderRouteBuses(route_id, direction_id);
+    } else {
+      fetchAndRenderBuses();
+    }
+  };
+
+  // Initial fetch
+  poll();
+
+  // Poll every 30 seconds
+  pollTimer.current = setInterval(poll, 30_000);
+
+  return () => {
+    if (pollTimer.current) {
+      clearInterval(pollTimer.current);
+      pollTimer.current = null;
+    }
+  };
+}, [selectedRoute]);
+
+
+  async function fetchAndRenderRouteBuses(route_id, direction_id) {
+  console.log(
+    `Polling route: GET /buses/by-route?route_id=${route_id}&direction_id=${direction_id}`
+  );
+
+  try {
+    const res = await fetch(
+      `${API_BASE}/buses/by-route?route_id=${route_id}&direction_id=${direction_id}`
+    );
+
+    if (!res.ok) throw new Error("Route polling failed");
+
+    const body = await res.json();
+    if (body?.success && Array.isArray(body.data)) {
+      return renderOrUpdateMarkers(body.data);
+    }
+  } catch (err) {
+    console.warn("Route polling failed:", err.message);
+  }
+}
+
   async function fetchAndRenderBuses() {
+    if (selectedRoute) {
+      console.log("Blocked global fetch — route mode active");
+      return;
+    }
+
     console.log("Calling API: GET /buses/active ...");
 
     try {

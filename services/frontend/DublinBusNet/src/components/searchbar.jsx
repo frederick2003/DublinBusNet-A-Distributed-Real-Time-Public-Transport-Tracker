@@ -42,6 +42,7 @@ export default function SearchBar({ onSearch, user, setFavouriteRoute }) {
       await setFavouriteRoute(route);
       setIsStarActive(true);
     } catch {
+      console.error("Failed to save favourite:", err);
       alert("Failed to save favourite route");
     }
   }
@@ -103,15 +104,14 @@ export default function SearchBar({ onSearch, user, setFavouriteRoute }) {
       {/*Show favourite routes in the searchbar */}
       {showDropdown && (
         <ul className="dropdown-list">
-          {favourites.map((fav) => (
+          {user?.favourite_route && (
             <li
-              key={fav}
               className="dropdown-item"
-              onClick={() => handleFavouriteClick(fav)}
+              onClick={() => handleFavouriteClick(user.favourite_route)}
             >
-              ⭐ {fav}
+              ⭐ {user.favourite_route}
             </li>
-          ))}
+          )}
 
           {/*Show "most common route" below favourites */}
           {mostCommonRoute && (
