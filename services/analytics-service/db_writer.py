@@ -1,6 +1,7 @@
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
+from decimal import Decimal
 
 def get_connection():
     return psycopg2.connect(
@@ -127,3 +128,39 @@ def fetch_recent_trip_delays(route_id: str, stop_id: str, limit: int = 50):
     cur.close()
     conn.close()
     return rows
+
+def fetch_realtime_features(route_id: str, stop_id: str, window_minutes: int = 15):
+    """
+    Extract real-time features from Postgres for ML predictions.
+    Builds meaningful statistics from live GTFS trip updates.
+    """
+    conn = get_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    cur.execute(
+        """
+        SELECT
+            COUNT(*) AS event_count,
+            AVG(arrival_delay) AS avg_delay,
+            STDDEV(arrival_delay) AS delay_std,
+            MIN(arrival_delay) AS min_delay,
+            MAX(arrival_delay) AS max_delay,
+            EXTRACT(HOUR FROM NOW()) AS hour_of_day,
+            EXTRACT(DOW FROM NOW()) AS day_of_week
+        FROM trip_updates
+        WHERE route_id = %s
+          AND stop_id = %s
+          AND timestamp >= NOW() - INTERVAL '%s minutes'
+        """,
+        (route_id, stop_id, window_minutes),
+    )
+
+    features = cur.fetchone()
+    if features:
+        for key, value in features.items():
+            if isinstance(value, Decimal):
+                features[key] = float(value)
+    cur.close()
+    conn.close()
+
+    return features
