@@ -1,2 +1,5 @@
 requests
 redis
+protobuf
+gtfs-realtime-bindings
+kafka-python

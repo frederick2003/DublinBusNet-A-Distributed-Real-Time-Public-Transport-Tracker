@@ -5,6 +5,7 @@ import routes from "./routes";
 import authRoutes from "./routes/auth";
 import { ensureSeeded } from "./services/busCache";
 import userRoutes from "./routes/users";
+import predictionRoutes from "./routes/predictions";
 
 const app = express();
 app.use(cors());
@@ -14,6 +15,8 @@ app.use(morgan("dev"));
 app.use("/api/auth", authRoutes);
 
 app.use("/api/users", userRoutes);
+
+app.use("/api", predictionRoutes);
 
 // When running behind a proxy (nginx / API gateway), trust X-Forwarded-* headers
 app.set("trust proxy", true);

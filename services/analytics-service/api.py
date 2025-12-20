@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Query
-from db_writer import fetch_recent_trip_delays
+#from db_writer import fetch_recent_trip_delays
 from ml.delay_model import predict_delay_seconds
 from ml.busyness_model import map_count_to_busyness
 

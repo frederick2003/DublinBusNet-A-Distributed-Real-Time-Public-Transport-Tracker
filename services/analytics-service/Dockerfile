@@ -1,8 +1,16 @@
-FROM node:18-alpine
+FROM python:3.11-slim
+
 WORKDIR /app
-COPY package*.json ./
-# Use `npm install` when package-lock.json is not present (ci requires a lockfile).
-RUN npm install --production
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy analytics worker code
 COPY . .
-EXPOSE 4000
-CMD [ "node", "index.js" ]
+
+# Ensure logs appear immediately
+ENV PYTHONUNBUFFERED=1
+
+# Run Kafka consumer (blocking)
+CMD ["python", "main.py"]

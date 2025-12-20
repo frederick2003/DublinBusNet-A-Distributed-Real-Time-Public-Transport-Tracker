@@ -4,7 +4,6 @@ import { predictHandler } from "./controllers/predict";
 import {
   activeBusesHandler,
   busesByRouteHandler,
-  busesByStopHandler,
 } from "./controllers/buses";
 import {
   routePathHandler,
@@ -37,7 +36,6 @@ router.post("/predict", rateLimiterMiddleware, predictHandler);
 // Bus endpoints consumed by the frontend map
 router.get("/buses/active", activeBusesHandler);
 router.get("/buses/by-route", busesByRouteHandler);
-router.get("/buses/by-stop", busesByStopHandler);
 
 // Simple route geometry helpers for drawing lines on the map
 router.get("/routes/shape", routeShapeHandler);

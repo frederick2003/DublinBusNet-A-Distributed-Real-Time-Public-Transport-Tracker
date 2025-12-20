@@ -102,28 +102,3 @@ def insert_vehicle_position(data: dict) -> None:
     conn.commit()
     cur.close()
     conn.close()
-
-def fetch_recent_trip_delays(route_id: str, stop_id: str, limit: int = 50):
-    """
-    Returns recent arrival_delays for a given route+stop, for use in simple ML.
-    """
-    conn = get_connection()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
-
-    cur.execute(
-        """
-        SELECT arrival_delay
-        FROM trip_updates
-        WHERE route_id = %s
-          AND stop_id = %s
-          AND arrival_delay IS NOT NULL
-        ORDER BY timestamp DESC
-        LIMIT %s
-        """,
-        (route_id, stop_id, limit),
-    )
-
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return rows

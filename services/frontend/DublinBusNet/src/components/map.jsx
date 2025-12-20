@@ -247,59 +247,58 @@ export default function BusMap({ auth }) {
   }, []);
 
   useEffect(() => {
-  if (!map.current) return;
+    if (!map.current) return;
 
-  // Clear any existing polling
-  if (pollTimer.current) {
-    clearInterval(pollTimer.current);
-    pollTimer.current = null;
-  }
-
-  // Decide what to poll based on state
-  const poll = () => {
-    if (selectedRoute) {
-      const { route_id, direction_id } = selectedRoute;
-      fetchAndRenderRouteBuses(route_id, direction_id);
-    } else {
-      fetchAndRenderBuses();
-    }
-  };
-
-  // Initial fetch
-  poll();
-
-  // Poll every 30 seconds
-  pollTimer.current = setInterval(poll, 30_000);
-
-  return () => {
+    // Clear any existing polling
     if (pollTimer.current) {
       clearInterval(pollTimer.current);
       pollTimer.current = null;
     }
-  };
-}, [selectedRoute]);
 
+    // Decide what to poll based on state
+    const poll = () => {
+      if (selectedRoute) {
+        const { route_id, direction_id } = selectedRoute;
+        fetchAndRenderRouteBuses(route_id, direction_id);
+      } else {
+        fetchAndRenderBuses();
+      }
+    };
+
+    // Initial fetch
+    poll();
+
+    // Poll every 30 seconds
+    pollTimer.current = setInterval(poll, 30_000);
+
+    return () => {
+      if (pollTimer.current) {
+        clearInterval(pollTimer.current);
+        pollTimer.current = null;
+      }
+    };
+  }, [selectedRoute]);
 
   async function fetchAndRenderRouteBuses(route_id, direction_id) {
-  console.log(
-    `Polling route: GET /buses/by-route?route_id=${route_id}&direction_id=${direction_id}`
-  );
-
-  try {
-    const res = await fetch(
-      `${API_BASE}/buses/by-route?route_id=${route_id}&direction_id=${direction_id}`
+    console.log(
+      `Polling route: GET /buses/by-route?route_id=${route_id}&direction_id=${direction_id}`
     );
 
-    if (!res.ok) throw new Error("Route polling failed");
+    try {
+      const res = await fetch(
+        `${API_BASE}/buses/by-route?route_id=${route_id}&direction_id=${direction_id}`
+      );
 
-    const body = await res.json();
-    if (body?.success && Array.isArray(body.data)) {
-      return renderOrUpdateMarkers(body.data);
+      if (!res.ok) throw new Error("Route polling failed");
+
+      const body = await res.json();
+      if (body?.success && Array.isArray(body.data)) {
+        return renderOrUpdateMarkers(body.data);
+      }
+    } catch (err) {
+      console.warn("Route polling failed:", err.message);
     }
-  } catch (err) {
-    console.warn("Route polling failed:", err.message);
   }
-}
 
   async function fetchAndRenderBuses() {
     if (selectedRoute) {
@@ -457,33 +456,38 @@ export default function BusMap({ auth }) {
     const stillPresent = new Set();
 
     buses.forEach((bus) => {
-      const { vehicle_id, route_id, latitude, longitude, delay_seconds } = bus;
-      if (typeof latitude !== "number" || typeof longitude !== "number") return;
+      const { vehicle_id, route_id, lat, lon, direction_id, speed, timestamp } =
+        bus;
+
+      if (typeof lat !== "number" || typeof lon !== "number") return;
 
       stillPresent.add(vehicle_id);
       const friendlyRoute = routeLookup.current.get(route_id) || route_id;
 
       const popupHtml = `
-        <div style="font-size:12px;line-height:1.2">
-          <strong>Route:</strong> ${friendlyRoute}<br/>
-          <strong>Vehicle:</strong> ${vehicle_id}<br/>
-          <strong>Delay:</strong> ${delay_seconds ?? 0}s
-        </div>
-      `;
+      <div style="font-size:12px;line-height:1.2">
+        <strong>Route:</strong> ${friendlyRoute}<br/>
+        <strong>Vehicle:</strong> ${vehicle_id}<br/>
+        <strong>Direction:</strong> ${direction_id}<br/>
+        <strong>Speed:</strong> ${speed ?? "N/A"}<br/>
+        <strong>Updated:</strong> ${new Date(timestamp).toLocaleTimeString()}
+      </div>
+    `;
 
       const existing = markersRef.current.get(vehicle_id);
       if (existing) {
-        existing.setLngLat([longitude, latitude]);
+        existing.setLngLat([lon, lat]);
         if (existing.getPopup()) existing.getPopup().setHTML(popupHtml);
       } else {
         const el = document.createElement("div");
         el.className = "bus-marker";
         el.innerHTML = "🚌";
+
         const marker = new maplibregl.Marker({
           element: el,
           anchor: "center",
         })
-          .setLngLat([longitude, latitude])
+          .setLngLat([lon, lat])
           .setPopup(new maplibregl.Popup({ offset: 12 }).setHTML(popupHtml))
           .addTo(map.current);
 
@@ -491,7 +495,7 @@ export default function BusMap({ auth }) {
       }
     });
 
-    // Remove markers that no longer exist
+    // Remove markers that disappeared
     markersRef.current.forEach((marker, vid) => {
       if (!stillPresent.has(vid)) {
         marker.remove();
