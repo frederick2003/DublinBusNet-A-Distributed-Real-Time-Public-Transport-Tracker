@@ -1,6 +1,7 @@
 import time
 from kafka_consumer import create_consumer
 from processor import process_message
+from config import KAFKA_BROKER, KAFKA_TOPIC, CONSUMER_GROUP
 
 def run_analytics_service():
     print("[Analytics] Starting Kafka consumer...")
