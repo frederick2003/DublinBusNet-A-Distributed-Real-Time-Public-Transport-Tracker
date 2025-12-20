@@ -31,3 +31,21 @@ def fetch_gtfs_feed() -> gtfs_realtime_pb2.FeedMessage:
     feed = gtfs_realtime_pb2.FeedMessage()
     feed.ParseFromString(resp.content)
     return feed
+
+def fetch_vehicle_positions() -> gtfs_realtime_pb2.FeedMessage:
+    if not NTA_API_KEY:
+        raise RuntimeError("NTA_API_KEY not set")
+
+    url = "https://api.nationaltransport.ie/gtfsr/v2/Vehicles"
+    headers = {
+        "Cache-Control": "no-cache",
+        "x-api-key": NTA_API_KEY,
+    }
+
+    resp = requests.get(url, headers=headers, timeout=10)
+    resp.raise_for_status()
+
+    feed = gtfs_realtime_pb2.FeedMessage()
+    feed.ParseFromString(resp.content)
+
+    return feed

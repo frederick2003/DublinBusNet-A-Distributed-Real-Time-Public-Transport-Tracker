@@ -15,16 +15,12 @@ def predict_delay_from_features(features: dict) -> float:
     count = features["event_count"] or 0
     hour = int(features["hour_of_day"])
 
-    # Congestion factor from event volume
-    congestion_factor = min(count / 10, 5)
-
-    # Peak hour multiplier
-    if 7 <= hour <= 9 or 16 <= hour <= 18:
-        peak_multiplier = 15  # 15 seconds added during peak
-    else:
-        peak_multiplier = 0
-
-    predicted = avg + (0.3 * std) + peak_multiplier + congestion_factor
-
-    # never negative
-    return max(0.0, round(predicted, 2))
+def predict_delay_seconds(recent_delays_rows) -> float:
+    """
+    Given recent rows of {arrival_delay}, predict a simple delay.
+    """
+    delays = [row["arrival_delay"] for row in recent_delays_rows if row["arrival_delay"] is not None]
+    avg = compute_average_delay(delays)
+    if avg is None:
+        return 60.0  # default 1 min delay if no history
+    return float(round(avg, 2))

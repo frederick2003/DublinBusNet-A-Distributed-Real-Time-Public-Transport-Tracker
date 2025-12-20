@@ -1,8 +1,7 @@
 from fastapi import FastAPI, Query
-from db_writer import fetch_realtime_features
-from ml.delay_model import predict_delay_from_features
-from ml.busyness_model import predict_busyness_from_features
-from cache import get_route_stop_metrics
+#from db_writer import fetch_recent_trip_delays
+from ml.delay_model import predict_delay_seconds
+from ml.busyness_model import map_count_to_busyness
 
 app = FastAPI(title="DublinBusNet Analytics Service")
 

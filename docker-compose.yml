@@ -1,17 +1,55 @@
-version: "3.8"
-
 services:
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:latest
+    container_name: redpanda
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp
+      - "1"
+      - --memory
+      - 1G
+      - --reserve-memory
+      - 0M
+      - --node-id
+      - "0"
+      - --check=false
+      - --set
+      - redpanda.enable_transactions=false
+      - --set
+      - redpanda.enable_idempotence=false
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr
+      - PLAINTEXT://redpanda:9092
+    ports:
+      - "9092:9092"
+      - "9644:9644"
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
   backend:
     build:
       context: ./services/backend-service
       dockerfile: Dockerfile
-    container_name: dublinbusnet_backend
+    container_name: backend
     ports:
       - "3000:3000"
     environment:
       - NODE_ENV=production
       - REDIS_URL=redis://redis:6379
       - STOPS_FILE=/app/data/stops.txt
+    volumes:
+      - ./Updated_Dublin_Bus_Static_Data:/app/data:ro
+    depends_on:
+      - redis
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
@@ -19,32 +57,56 @@ services:
       timeout: 10s
       retries: 5
       start_period: 5s
-    volumes:
-      - ./Updated_Dublin_Bus_Static_Data:/app/data:ro
-
-  redis:
-    image: redis:7-alpine
-    container_name: dublinbusnet_redis
-    ports:
-      - "6379:6379"
-    restart: unless-stopped
 
   analytics:
     build:
       context: ./services/analytics-service
       dockerfile: Dockerfile
-    container_name: dublinbusnet_analytics
+    container_name: analytics
     ports:
       - "4000:4000"
     environment:
-      - NODE_ENV=production
+      - KAFKA_BROKER=redpanda:9092
+      - KAFKA_TOPIC=bus_updates
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redpanda
+      - redis
+    restart: unless-stopped
+
+  #legacy-ingestion:
+  #env_file:
+  #- .env
+  #build:
+  #context: ./services/ingestion-service
+  #dockerfile: Dockerfile.backend
+  #container_name: ingestion_backend
+  #environment:
+  #- REDIS_URL=redis://redis:6379
+  #- POLL_INTERVAL=30
+  #depends_on:
+  #- redis
+  #restart: unless-stopped
+
+  kafka-ingestion:
+    build:
+      context: ./services/ingestion-service
+      dockerfile: Dockerfile
+    container_name: kafka-ingestion
+    environment:
+      - KAFKA_BROKER=redpanda:9092
+      - KAFKA_TOPIC=bus_updates
+      - POLL_INTERVAL=30
+      - NTA_API_KEY=${NTA_API_KEY}
+    depends_on:
+      - redpanda
     restart: unless-stopped
 
   frontend:
     build:
       context: ./services/frontend/DublinBusNet
       dockerfile: Dockerfile
-    container_name: dublinbusnet_frontend
+    container_name: frontend
     ports:
       - "8080:80"
     environment:
@@ -53,22 +115,15 @@ services:
       - backend
     restart: unless-stopped
 
-  ingestion-backend:
-    env_file:
-      - .env
-    build:
-      context: ./services/ingestion-service
-      dockerfile: Dockerfile.backend
-    container_name: dublinbusnet_ingestion_backend
-    environment:
-      - REDIS_URL=redis://redis:6379
-      - POLL_INTERVAL=30
-      # - STATIC_VEH_FILE=/app/data/vehicles_test.json
-    # volumes:
-    # - ./services/frontend/DublinBusNet/public/data/vehicles_test.json:/app/data/vehicles_test.json:ro
+  vehicle-positions-consumer:
+    build: ./services/vehicle-positions-consumer
     depends_on:
+      - redpanda
       - redis
-    restart: unless-stopped
+    container_name: Vehicle-Pos-Consumer
+    environment:
+      KAFKA_BROKER: redpanda:9092
+      REDIS_HOST: redis
 
 networks:
   default:

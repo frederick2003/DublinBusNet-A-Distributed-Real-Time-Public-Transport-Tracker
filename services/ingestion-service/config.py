@@ -11,4 +11,10 @@ POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "30")) # Reduce message volume by
 
 # Kafka / Redpanda configuration
 KAFKA_BROKER = os.getenv("KAFKA_BROKER", "localhost:9092")
-KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "bus_updates")
+KAFKA_TRIP_TOPIC = os.getenv("KAFKA_TOPIC", "bus_updates")
+KAFKA_VEHICLE_TOPIC = os.getenv("KAFKA_VEHICLE_TOPIC", "vehicle_positions")
+
+
+print(f"[Analytics] Kafka broker: {KAFKA_BROKER}")
+print(f"[Analytics] Kafka trip topic: {KAFKA_TRIP_TOPIC}")
+print(f"[Analytics] Kafka vehicle topic: {KAFKA_VEHICLE_TOPIC}")

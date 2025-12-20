@@ -1,33 +1,23 @@
-from confluent_kafka import Consumer
-import json
+import time
+from kafka_consumer import create_consumer
 from processor import process_message
 from config import KAFKA_BROKER, KAFKA_TOPIC, CONSUMER_GROUP
 
 def run_analytics_service():
-    consumer = Consumer({
-        "bootstrap.servers": KAFKA_BROKER,
-        "group.id": CONSUMER_GROUP,
-        "auto.offset.reset": "latest"   # prevents reprocessing 100k old messages
-    })
-
-    consumer.subscribe([KAFKA_TOPIC])
-    print("[Analytics] Kafka consumer running...")
+    print("[Analytics] Starting Kafka consumer...")
 
     while True:
-        msg = consumer.poll(1.0)
-
-        if msg is None:
-            continue
-        
-        if msg.error():
-            print("[Analytics] Kafka error:", msg.error())
-            continue
-
         try:
-            data = json.loads(msg.value().decode("utf-8"))
-            process_message(data)  # ≤— now metrics will compute!
+            consumer = create_consumer()
+            print("[Analytics] Kafka consumer running")
+
+            for msg in consumer:
+                process_message(msg.value)
+
         except Exception as e:
-            print("[Analytics] Failed to process:", e)
+            print(f"[Analytics ERROR] Consumer crashed: {e}")
+            print("[Analytics] Retrying in 5 seconds...")
+            time.sleep(5)
 
 if __name__ == "__main__":
     run_analytics_service()

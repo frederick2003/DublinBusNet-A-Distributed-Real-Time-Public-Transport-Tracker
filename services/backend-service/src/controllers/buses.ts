@@ -50,31 +50,3 @@ export const busesByRouteHandler = async (
 
   res.json({ success: true, data: filtered });
 };
-
-// GET /buses/by-stop?stop_id=1842&time_window_minutes=30
-export const busesByStopHandler = async (req: Request, res: Response) => {
-  const { stop_id, time_window_minutes } = req.query;
-  if (!stop_id) {
-    return res
-      .status(400)
-      .json({ success: false, error: "stop_id is required" });
-  }
-  const windowMinutes = Number(time_window_minutes) || 30;
-
-  const buses = await getActiveBuses();
-  if (!buses.length)
-    return res.status(404).json({ success: false, error: "No upcoming buses" });
-
-  // In absence of trip stop-time data, synthesize ETAs deterministically from the bus list.
-  const arrivals = buses.slice(0, 5).map((bus: BusRecord, idx: number) => ({
-    vehicle_id: bus.vehicle_id,
-    route_id: bus.route_id,
-    expected_arrival_time: new Date(
-      Date.now() + (idx + 1) * (windowMinutes / 5) * 60 * 1000
-    ).toISOString(),
-    delay_seconds: bus.delay_seconds ?? 0,
-    busy_rating: Math.min(10, 4 + idx * 1.2),
-  }));
-
-  res.json({ success: true, data: arrivals });
-};
