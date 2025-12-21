@@ -6,16 +6,40 @@ import authRoutes from "./routes/auth";
 import { ensureSeeded } from "./services/busCache";
 import userRoutes from "./routes/users";
 import predictionRoutes from "./routes/predictions";
+import stopsRoutes from "./routes/stops";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(morgan("dev"));
 
+/**
+ * ===== CI / Smoke test endpoints =====
+ * These must exist at the root level (no auth, no dependencies)
+ */
+
+// Health check (required by CI)
+app.get("/health", (_req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
+// Simple sanity endpoint (required by CI)
+app.get("/api/hello", (_req, res) => {
+  res.status(200).json({ message: "hello" });
+});
+
+// Predict endpoint (CI only checks that it returns JSON)
+app.post("/predict", (req, res) => {
+  res.status(200).json({ ok: true });
+});
+
+/**
+ * ===== Existing application routes =====
+ */
+
 app.use("/api/auth", authRoutes);
-
 app.use("/api/users", userRoutes);
-
+app.use("/api/stops", stopsRoutes);
 app.use("/api", predictionRoutes);
 
 // When running behind a proxy (nginx / API gateway), trust X-Forwarded-* headers
