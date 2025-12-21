@@ -1,0 +1,24 @@
+# Node
+node_modules
+npm-debug.log
+
+# Build output
+dist
+
+# Git
+.git
+.gitignore
+
+# IDE / OS
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile*
+docker-compose*
+*.log
+
+# Large project-wide directories (very important)
+Updated_Dublin_Bus_Static_Data

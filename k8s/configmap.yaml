@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: dublinbus
+data:
+  # Redis
+  REDIS_URL: redis://redis:6379
+  REDIS_HOST: redis
+
+  # Kafka / Redpanda
+  KAFKA_BROKER: redpanda.dublinbus.svc.cluster.local:9092
+  KAFKA_TOPIC: bus_updates
+
+  # Backend
+  NODE_ENV: production
+  STOPS_FILE: /app/data/stops.txt
+
+  # Ingestion
+  POLL_INTERVAL: "30"

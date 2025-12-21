@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vehicle-positions-consumer
+  namespace: dublinbus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vehicle-positions-consumer
+  template:
+    metadata:
+      labels:
+        app: vehicle-positions-consumer
+    spec:
+      containers:
+        - name: vehicle-positions-consumer
+          image: dublinbus-vehicle-positions-consumer:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: app-config
