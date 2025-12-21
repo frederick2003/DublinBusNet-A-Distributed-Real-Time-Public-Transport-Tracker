@@ -1,34 +1,35 @@
-import json
 import time
-
-from fetch_gtfs import fetch_trip_updates, fetch_vehicle_positions
+from fetch_gtfs import fetch_gtfs_feed,fetch_vehicle_positions, GTFSFetchError
 from normalise import normalise_trip_updates, normalise_vehicle_positions
-from kafka_producer import publish
-from config import POLL_INTERVAL, KAFKA_TOPIC
-
+from kafka_producer import publish_message
+from config import KAFKA_TRIP_TOPIC, KAFKA_VEHICLE_TOPIC, POLL_INTERVAL
 
 def run_ingestion():
     print(f"[Ingestion] Starting service. Polling every {POLL_INTERVAL} seconds...")
 
     while True:
-        # 1. Fetch data
-        trip_raw = fetch_trip_updates()
-        veh_raw  = fetch_vehicle_positions()
+        try:
+            trip_feed = fetch_gtfs_feed()
+            vehicle_feed = fetch_vehicle_positions()
 
-        # 2. Normalise
-        trip_msgs = normalise_trip_updates(trip_raw)
-        veh_msgs  = normalise_vehicle_positions(veh_raw)
+            trip_msgs = normalise_trip_updates(trip_feed)
+            veh_msgs = normalise_vehicle_positions(vehicle_feed)
+            print(f"[Ingestion] Normalised {len(veh_msgs)} vehicle positions", flush=True)
 
-        all_msgs = trip_msgs + veh_msgs
+            for msg in trip_msgs:
+                publish_message(KAFKA_TRIP_TOPIC, msg)
 
-        # 3. Publish messages
-        for msg in all_msgs:
-            publish(KAFKA_TOPIC, json.dumps(msg))
+            for msg in veh_msgs:
+                publish_message(KAFKA_VEHICLE_TOPIC, msg)
+            
+            if veh_msgs:
+                print(f"[Ingestion] Published {len(veh_msgs)} vehicle positions to Kafka", flush=True)
 
-        # 4. Logging
-        print(f"[Ingestion] Published {len(all_msgs)} messages.")
+        except GTFSFetchError as e:
+            print(f"[Ingestion ERROR] GTFS fetch error: {e}")
+        except Exception as e:
+            print(f"[Ingestion ERROR] Unexpected error: {e}")
 
-        # 5. Wait
         time.sleep(POLL_INTERVAL)
 
 

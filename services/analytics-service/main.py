@@ -1,12 +1,23 @@
+import time
 from kafka_consumer import create_consumer
-from processor import process_message
 
-def run():
-    consumer = create_consumer()
-    print("[Analytics] Kafka consumer running...")
+from processor import process_trip_update
 
-    for msg in consumer:
-        process_message(msg.value)
+def run_analytics_service():
+    print("[Analytics] Starting Kafka consumer...")
+
+    while True:
+        try:
+            consumer = create_consumer()
+            print("[Analytics] Kafka consumer running")
+
+            for msg in consumer:
+                process_trip_update(msg.value)
+
+        except Exception as e:
+            print(f"[Analytics ERROR] Consumer crashed: {e}")
+            print("[Analytics] Retrying in 5 seconds...")
+            time.sleep(5)
 
 if __name__ == "__main__":
-    run()
+    run_analytics_service()

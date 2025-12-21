@@ -8,33 +8,59 @@ const API_BASE = import.meta.env.VITE_API_BASE || "/api";
 // Import components.
 import SearchBar from "./searchbar";
 import SignInPanel from "./signin";
+import Navbar from "./navbar";
 
-export default function BusMap() {
+export default function BusMap({ auth }) {
+  const { user, token, loading, signIn, signUp, signOut, setFavouriteRoute } =
+    auth;
   const mapContainer = useRef(null);
   const map = useRef(null);
   const markersRef = useRef(new Map());
   const pollTimer = useRef(null); // optional: for auto-refresh
   const routeLookup = useRef(new Map());
+  const stopBusynessRef = useRef(new Map());
   const routeReverseLookup = useRef(new Map());
-  const [showAuth, setShowAuth] = React.useState(true);
+  const [showAuth, setShowAuth] = React.useState(false);
   const [authMode, setAuthMode] = React.useState("choice");
+  React.useEffect(() => {
+    if (user) {
+      setShowAuth(false); // logged in → hide
+    } else {
+      setShowAuth(true); // guest → show
+    }
+  }, [user]);
+
+  const routeLayerId = "route-shape-line";
+  const routeSourceId = "route-shape-source";
+  const routeStopsLayerId = "route-stops-layer";
+  const routeStopsSourceId = "route-stops-source";
+  const [selectedRoute, setSelectedRoute] = React.useState(null);
+  const FADE_NON_SELECTED_STOPS = true; // set to false to hide non-selected stops entirely
 
   const lng = -6.266155;
   const lat = 53.35014;
   const zoom = 14;
-  const API_KEY = import.meta.env.VITE_MAPTILER_API_KEY_HERE;
+  // Accept either VITE_MAPTILER_API_KEY or legacy VITE_MAPTILER_API_KEY_HERE
+  const API_KEY =
+    import.meta.env.VITE_MAPTILER_API_KEY ||
+    import.meta.env.VITE_MAPTILER_API_KEY_HERE;
 
   const handleSearch = async (route_id, direction_id = 1) => {
+    const normalizedRoute = (route_id || "").toUpperCase();
+    setSelectedRoute({ route_id: normalizedRoute, direction_id });
+
     console.log(
-      `Calling API: GET ${API_BASE}/buses/by-route?route_id=${route_id}&direction_id=${direction_id}`
+      `Calling API: GET ${API_BASE}/buses/by-route?route_id=${normalizedRoute}&direction_id=${direction_id}`
     );
 
-    // NEW: resolve user input (e.g. "6") → GTFS internal IDs
-    const rawRouteIds = routeReverseLookup.current.get(route_id) || [];
+    const rawRouteIds = routeReverseLookup.current.get(normalizedRoute) || [];
 
     try {
       const res = await fetch(
-        `${API_BASE}/buses/by-route?route_id=${route_id}&direction_id=${direction_id}`
+        `${API_BASE}/buses/by-route?route_id=${normalizedRoute}&direction_id=${direction_id}`,
+        {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        }
       );
 
       console.log(`Status: ${res.status}`);
@@ -45,7 +71,12 @@ export default function BusMap() {
 
       if (body?.success && Array.isArray(body.data)) {
         console.log(`Backend returned ${body.data.length} buses`);
-        return renderOrUpdateMarkers(body.data);
+        renderOrUpdateMarkers(body.data);
+        fetchAndRenderRoute(normalizedRoute, direction_id);
+        if (auth?.refreshUser) {
+          auth.refreshUser();
+        }
+        return;
       }
 
       throw new Error("Unexpected backend response");
@@ -55,7 +86,6 @@ export default function BusMap() {
         err.message
       );
 
-      // --- FALLBACK: Filter static feed using mapped GTFS IDs ---
       try {
         const staticRes = await fetch("/data/vehicles_test.json");
         const staticJson = await staticRes.json();
@@ -81,12 +111,12 @@ export default function BusMap() {
           .filter(
             (bus) =>
               bus &&
-              rawRouteIds.includes(bus.route_id) && // <-- NEW FIX
+              rawRouteIds.includes(bus.route_id) &&
               Number(bus.direction_id) === Number(direction_id)
           );
 
         console.log(
-          `Fallback static dataset returned ${filtered.length} buses for route ${route_id} (dir=${direction_id})`
+          `Fallback static dataset returned ${filtered.length} buses for route ${normalizedRoute} (dir=${direction_id})`
         );
 
         return renderOrUpdateMarkers(filtered);
@@ -95,6 +125,47 @@ export default function BusMap() {
       }
     }
   };
+
+  async function fetchAndRenderRoute(route_id, direction_id = 1) {
+    if (!map.current) return;
+    try {
+      const res = await fetch(
+        `${API_BASE}/routes/shape?route_id=${route_id}&direction_id=${direction_id}`
+      );
+      if (!res.ok) throw new Error(`Route shape fetch failed: ${res.status}`);
+      const body = await res.json();
+      const shape = body?.data?.shape;
+      const color = body?.data?.color;
+      if (!shape) throw new Error("Missing shape in response");
+      renderRouteLine(shape, color);
+      await fetchAndRenderRouteStops(route_id, direction_id, color);
+    } catch (err) {
+      console.warn(
+        "Failed to load route shape; will skip drawing polyline",
+        err.message
+      );
+      // Optional fallback: clear any existing route line
+      removeRouteLine();
+      removeRouteStops();
+    }
+  }
+
+  async function fetchAndRenderRouteStops(route_id, direction_id = 1, color) {
+    if (!map.current) return;
+    try {
+      const res = await fetch(
+        `${API_BASE}/routes/stops?route_id=${route_id}&direction_id=${direction_id}`
+      );
+      if (!res.ok) throw new Error(`Route stops fetch failed: ${res.status}`);
+      const body = await res.json();
+      const stops = body?.data?.stops;
+      if (!stops) throw new Error("Missing stops in response");
+      renderRouteStops(stops, color);
+    } catch (err) {
+      console.warn("Failed to load route stops", err.message);
+      removeRouteStops();
+    }
+  }
 
   async function loadRoutes() {
     try {
@@ -138,9 +209,20 @@ export default function BusMap() {
   useEffect(() => {
     if (map.current) return;
 
+    // If no API key is provided, fall back to a public demo style so the map still renders.
+    const styleUrl = API_KEY
+      ? `https://api.maptiler.com/maps/streets-v2/style.json?key=${API_KEY}`
+      : "https://demotiles.maplibre.org/style.json";
+
+    if (!API_KEY) {
+      console.warn(
+        "No MapTiler API key found; using demo tiles (may be rate-limited)."
+      );
+    }
+
     map.current = new maplibregl.Map({
       container: mapContainer.current,
-      style: `https://api.maptiler.com/maps/streets-v2/style.json?key=${API_KEY}`,
+      style: styleUrl,
       center: [lng, lat],
       zoom: zoom,
       pitch: 60,
@@ -151,15 +233,11 @@ export default function BusMap() {
     // Add controls when map is ready
     map.current.on("load", () => {
       map.current.addControl(new maplibregl.NavigationControl(), "top-right");
-
       loadRoutes();
       loadStops();
-      fetchAndRenderBuses();
     });
 
     return () => {
-      // Cleanup on unmount
-      if (pollTimer.current) clearInterval(pollTimer.current);
       if (map.current) {
         map.current.remove();
         map.current = null;
@@ -169,7 +247,89 @@ export default function BusMap() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!map.current) return;
+
+    let cancelled = false;
+
+    const poll = async () => {
+      if (cancelled) return;
+
+      try {
+        if (selectedRoute) {
+          const { route_id, direction_id } = selectedRoute;
+          await fetchAndRenderRouteBuses(route_id, direction_id);
+        } else {
+          await fetchAndRenderBuses();
+        }
+      } catch (err) {
+        console.error("Polling failed:", err);
+      } finally {
+        if (!cancelled) {
+          pollTimer.current = setTimeout(poll, 4000);
+        }
+      }
+    };
+
+    // Start immediately
+    poll();
+
+    return () => {
+      cancelled = true;
+      if (pollTimer.current) {
+        clearTimeout(pollTimer.current);
+        pollTimer.current = null;
+      }
+    };
+  }, [selectedRoute]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadStopsWithBusyness() {
+      await loadStopBusyness();
+      if (!cancelled) {
+        await loadStops();
+      }
+    }
+
+    loadStopsWithBusyness();
+
+    const interval = setInterval(loadStopsWithBusyness, 60_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  async function fetchAndRenderRouteBuses(route_id, direction_id) {
+    console.log(
+      `Polling route: GET /buses/by-route?route_id=${route_id}&direction_id=${direction_id}`
+    );
+
+    try {
+      const res = await fetch(
+        `${API_BASE}/buses/by-route?route_id=${route_id}&direction_id=${direction_id}`
+      );
+
+      if (!res.ok) throw new Error("Route polling failed");
+
+      const body = await res.json();
+      if (body?.success && Array.isArray(body.data)) {
+        return renderOrUpdateMarkers(body.data);
+      }
+    } catch (err) {
+      console.warn("Route polling failed:", err.message);
+    }
+  }
+
   async function fetchAndRenderBuses() {
+    if (selectedRoute) {
+      console.log("Blocked global fetch — route mode active");
+      return;
+    }
+
     console.log("Calling API: GET /buses/active ...");
 
     try {
@@ -222,6 +382,29 @@ export default function BusMap() {
     }
   }
 
+  async function loadStopBusyness() {
+    try {
+      const res = await fetch("/api/stops/busyness");
+      const body = await res.json();
+
+      if (!body.success || !Array.isArray(body.data)) return;
+
+      stopBusynessRef.current.clear();
+
+      body.data.forEach((item) => {
+        stopBusynessRef.current.set(item.stop_id, item);
+      });
+
+      console.log(
+        "[Stops] Loaded busyness for",
+        stopBusynessRef.current.size,
+        "stops"
+      );
+    } catch (err) {
+      console.error("Failed to load stop busyness", err);
+    }
+  }
+
   async function loadStops() {
     try {
       const response = await fetch("/data/stops.txt");
@@ -242,6 +425,8 @@ export default function BusMap() {
 
           if (Number.isNaN(lat) || Number.isNaN(lon)) return null;
 
+          const busyness = stopBusynessRef.current.get(obj.stop_id);
+
           return {
             type: "Feature",
             geometry: {
@@ -251,6 +436,9 @@ export default function BusMap() {
             properties: {
               stop_id: obj.stop_id,
               stop_name: obj.stop_name,
+              rating: busyness?.rating ?? "unknown",
+              arrivals: busyness?.arrivals_last_5m ?? 0,
+              avg_delay: busyness?.avg_delay_seconds ?? 0,
             },
           };
         })
@@ -285,19 +473,85 @@ export default function BusMap() {
               100,
               6,
             ],
-            "circle-color": "#007AFF",
+            "circle-color": [
+              "match",
+              ["get", "rating"],
+              "green",
+              "#2ecc71", // green
+              "orange",
+              "#f39c12", // orange
+              "red",
+              "#e74c3c", // red
+              "#9ca3af", // default / unknown
+            ],
             "circle-stroke-width": 1,
             "circle-stroke-color": "#ffffff",
           },
         });
 
         // Popup on click
-        map.current.on("click", "bus-stops-layer", (e) => {
+        map.current.on("click", "bus-stops-layer", async (e) => {
           const p = e.features[0].properties;
-          new maplibregl.Popup()
+          const stopId = p.stop_id;
+
+          const popup = new maplibregl.Popup()
             .setLngLat(e.lngLat)
-            .setHTML(`<strong>${p.stop_name}</strong><br>ID: ${p.stop_id}`)
+            .setHTML(
+              `
+      <div style="font-size:12px">
+        <strong>${p.stop_name}</strong><br/>
+        ID: ${stopId}<br/>
+        <em>Loading analytics…</em>
+      </div>
+    `
+            )
             .addTo(map.current);
+
+          try {
+            const res = await fetch(`/api/stops/${stopId}/busyness`);
+            const body = await res.json();
+
+            if (!body.success) {
+              popup.setHTML(`
+        <div style="font-size:12px">
+          <strong>${p.stop_name}</strong><br/>
+          ID: ${stopId}<br/>
+          <em>No analytics available</em>
+        </div>
+      `);
+              return;
+            }
+
+            const d = body.data;
+
+            const ratingEmoji =
+              d.rating === "green"
+                ? "🟢"
+                : d.rating === "orange"
+                ? "🟠"
+                : d.rating === "red"
+                ? "🔴"
+                : "⚪";
+
+            popup.setHTML(`
+      <div style="font-size:12px;line-height:1.3">
+        <strong>${p.stop_name}</strong><br/>
+        ID: ${stopId}<br/><br/>
+        <strong>Busyness:</strong> ${ratingEmoji} ${d.rating}<br/>
+        <strong>Arrivals (5m):</strong> ${d.arrivals_last_5m}<br/>
+        <strong>Avg delay:</strong> ${d.avg_delay_seconds}s
+      </div>
+    `);
+          } catch (err) {
+            console.error("Failed to load stop analytics", err);
+            popup.setHTML(`
+      <div style="font-size:12px">
+        <strong>${p.stop_name}</strong><br/>
+        ID: ${stopId}<br/>
+        <em>Error loading analytics</em>
+      </div>
+    `);
+          }
         });
 
         // Change cursor on hover
@@ -320,33 +574,37 @@ export default function BusMap() {
     const stillPresent = new Set();
 
     buses.forEach((bus) => {
-      const { vehicle_id, route_id, latitude, longitude, delay_seconds } = bus;
-      if (typeof latitude !== "number" || typeof longitude !== "number") return;
+      const { vehicle_id, route_id, lat, lon, direction_id, speed, timestamp } =
+        bus;
+
+      if (typeof lat !== "number" || typeof lon !== "number") return;
 
       stillPresent.add(vehicle_id);
       const friendlyRoute = routeLookup.current.get(route_id) || route_id;
+      console.log(friendlyRoute);
 
       const popupHtml = `
-        <div style="font-size:12px;line-height:1.2">
-          <strong>Route:</strong> ${friendlyRoute}<br/>
-          <strong>Vehicle:</strong> ${vehicle_id}<br/>
-          <strong>Delay:</strong> ${delay_seconds ?? 0}s
-        </div>
-      `;
+      <div style="font-size:12px;line-height:1.2">
+        <strong>Route:</strong> ${friendlyRoute}<br/>
+        <strong>Vehicle:</strong> ${vehicle_id}<br/>
+        <strong>Direction:</strong> ${direction_id}<br/>
+      </div>
+    `;
 
       const existing = markersRef.current.get(vehicle_id);
       if (existing) {
-        existing.setLngLat([longitude, latitude]);
+        existing.setLngLat([lon, lat]);
         if (existing.getPopup()) existing.getPopup().setHTML(popupHtml);
       } else {
         const el = document.createElement("div");
         el.className = "bus-marker";
         el.innerHTML = "🚌";
+
         const marker = new maplibregl.Marker({
           element: el,
           anchor: "center",
         })
-          .setLngLat([longitude, latitude])
+          .setLngLat([lon, lat])
           .setPopup(new maplibregl.Popup({ offset: 12 }).setHTML(popupHtml))
           .addTo(map.current);
 
@@ -354,7 +612,7 @@ export default function BusMap() {
       }
     });
 
-    // Remove markers that no longer exist
+    // Remove markers that disappeared
     markersRef.current.forEach((marker, vid) => {
       if (!stillPresent.has(vid)) {
         marker.remove();
@@ -363,17 +621,148 @@ export default function BusMap() {
     });
   }
 
+  function renderRouteLine(shapeGeoJson, color) {
+    if (!map.current) return;
+    // Remove existing
+    removeRouteLine();
+
+    map.current.addSource(routeSourceId, {
+      type: "geojson",
+      data: shapeGeoJson,
+    });
+
+    map.current.addLayer({
+      id: routeLayerId,
+      type: "line",
+      source: routeSourceId,
+      paint: {
+        "line-color": color || "#ff3b30",
+        "line-width": 5,
+        "line-opacity": 0.8,
+      },
+    });
+  }
+
+  function removeRouteLine() {
+    if (!map.current) return;
+    if (map.current.getLayer(routeLayerId)) {
+      map.current.removeLayer(routeLayerId);
+    }
+    if (map.current.getSource(routeSourceId)) {
+      map.current.removeSource(routeSourceId);
+    }
+  }
+
+  function renderRouteStops(stopsGeoJson, color) {
+    if (!map.current) return;
+    removeRouteStops();
+
+    map.current.addSource(routeStopsSourceId, {
+      type: "geojson",
+      data: stopsGeoJson,
+    });
+
+    map.current.addLayer({
+      id: routeStopsLayerId,
+      type: "circle",
+      source: routeStopsSourceId,
+      paint: {
+        "circle-radius": 4,
+        "circle-color": color || "#ff3b30",
+        "circle-stroke-width": 1,
+        "circle-stroke-color": "#ffffff",
+      },
+    });
+
+    updateStopVisibility(true, color);
+  }
+
+  function removeRouteStops() {
+    if (!map.current) return;
+    if (map.current.getLayer(routeStopsLayerId)) {
+      map.current.removeLayer(routeStopsLayerId);
+    }
+    if (map.current.getSource(routeStopsSourceId)) {
+      map.current.removeSource(routeStopsSourceId);
+    }
+    updateStopVisibility(false);
+  }
+
+  function updateStopVisibility(onlySelectedRoute, color) {
+    if (!map.current) return;
+    const baseLayer = map.current.getLayer("bus-stops-layer");
+    if (baseLayer) {
+      if (onlySelectedRoute) {
+        if (FADE_NON_SELECTED_STOPS) {
+          map.current.setLayoutProperty(
+            "bus-stops-layer",
+            "visibility",
+            "visible"
+          );
+          map.current.setPaintProperty(
+            "bus-stops-layer",
+            "circle-opacity",
+            0.12
+          );
+          map.current.setPaintProperty(
+            "bus-stops-layer",
+            "circle-color",
+            "#9bbce9"
+          );
+        } else {
+          map.current.setLayoutProperty(
+            "bus-stops-layer",
+            "visibility",
+            "none"
+          );
+        }
+      } else {
+        map.current.setLayoutProperty(
+          "bus-stops-layer",
+          "visibility",
+          "visible"
+        );
+        map.current.setPaintProperty("bus-stops-layer", "circle-opacity", 1);
+        map.current.setPaintProperty(
+          "bus-stops-layer",
+          "circle-color",
+          "#007AFF"
+        );
+      }
+    }
+
+    const selectedLayer = map.current.getLayer(routeStopsLayerId);
+    if (selectedLayer) {
+      map.current.setLayoutProperty(
+        routeStopsLayerId,
+        "visibility",
+        onlySelectedRoute ? "visible" : "none"
+      );
+    }
+  }
+
   return (
-    <div className="map-wrap">
-      <SearchBar onSearch={handleSearch} />
-      {showAuth && (
-        <SignInPanel
-          mode={authMode}
-          setMode={setAuthMode}
-          close={() => setShowAuth(false)}
-        />
-      )}
-      <div ref={mapContainer} className="map" />
+    <div className="page-shell">
+      <Navbar />
+      <main id="home">
+        <div className="map-wrap">
+          <SearchBar
+            onSearch={handleSearch}
+            user={user}
+            setFavouriteRoute={setFavouriteRoute}
+          />
+          {showAuth && (
+            <SignInPanel
+              mode={authMode}
+              setMode={setAuthMode}
+              close={() => setShowAuth(false)}
+              onSignIn={signIn}
+              onSignUp={signUp}
+            />
+          )}
+          <div ref={mapContainer} className="map" />
+        </div>
+      </main>
     </div>
   );
 }

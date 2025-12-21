@@ -1,2 +1,10 @@
 **/.env
 .env
+services/**/.env
+__pycache__/
+*.pyc
+services/**/.env
+services/**/.env
+__pycache__/
+*.pyc
+services/**/.env

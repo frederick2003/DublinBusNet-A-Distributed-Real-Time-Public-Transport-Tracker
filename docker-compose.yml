@@ -1,0 +1,116 @@
+services:
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:latest
+    container_name: redpanda
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp
+      - "1"
+      - --memory
+      - 1G
+      - --reserve-memory
+      - 0M
+      - --node-id
+      - "0"
+      - --check=false
+      - --set
+      - redpanda.enable_transactions=false
+      - --set
+      - redpanda.enable_idempotence=false
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr
+      - PLAINTEXT://redpanda:9092
+    ports:
+      - "9092:9092"
+      - "9644:9644"
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./services/backend-service
+      dockerfile: Dockerfile.compose
+    container_name: backend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=redis://redis:6379
+      - STOPS_FILE=/app/data/stops.txt
+    volumes:
+      - ./Updated_Dublin_Bus_Static_Data:/app/data:ro
+    depends_on:
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 5s
+
+  analytics:
+    build:
+      context: ./services/analytics-service
+      dockerfile: Dockerfile
+    container_name: analytics
+    ports:
+      - "4000:4000"
+    environment:
+      - KAFKA_BROKER=redpanda:9092
+      - KAFKA_TOPIC=bus_updates
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redpanda
+      - redis
+    restart: unless-stopped
+
+  kafka-ingestion:
+    build:
+      context: ./services/ingestion-service
+      dockerfile: Dockerfile
+    container_name: kafka-ingestion
+    environment:
+      - KAFKA_BROKER=redpanda:9092
+      - KAFKA_TOPIC=bus_updates
+      - POLL_INTERVAL=30
+      - NTA_API_KEY=${NTA_API_KEY}
+    depends_on:
+      - redpanda
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./services/frontend/DublinBusNet
+      dockerfile: Dockerfile.compose
+    container_name: frontend
+    ports:
+      - "8080:80"
+    environment:
+      - VITE_API_BASE=http://backend:3000/api
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  vehicle-positions-consumer:
+    build: ./services/vehicle-positions-consumer
+    depends_on:
+      - redpanda
+      - redis
+    container_name: Vehicle-Pos-Consumer
+    environment:
+      KAFKA_BROKER: redpanda:9092
+      REDIS_HOST: redis
+
+networks:
+  default:
+    name: dublinbusnet_default

@@ -1,22 +1,23 @@
 import React, { useState, useRef, useEffect } from "react";
 import "./searchbar.css";
 
-const API_BASE = import.meta.env.VITE_BASE_API || "/api";
+// Use the same API base env var as the map so requests hit the backend service.
+const API_BASE = import.meta.env.VITE_API_BASE || "/api";
 
-export default function SearchBar({ onSearch }) {
+export default function SearchBar({ onSearch, user, setFavouriteRoute }) {
   const [query, setQuery] = useState("");
   const [showDropdown, setShowDropdown] = useState(false);
-  const [mostCommonRoute, setMostCommonRoute] = useState(null);
-  const [lastRoute, setLastRoute] = useState(null);
-  const [favourites, setFavourites] = useState([]); // start empty
+  const mostCommonRoute = user?.most_common_route ?? null;
+  const favourites = user?.favourite_route ? [user.favourite_route] : [];
   const [isStarActive, setIsStarActive] = useState(false);
   const containerRef = useRef(null);
   const [direction, setDirection] = useState(1);
-  const userId = "USER123"; // mock user ID for now
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (onSearch) onSearch(query.trim(), direction);
+    const normalized = query.trim().toUpperCase();
+    setQuery(normalized);
+    if (onSearch) onSearch(normalized, direction);
     setShowDropdown(false);
   };
 
@@ -26,195 +27,23 @@ export default function SearchBar({ onSearch }) {
     setShowDropdown(false);
   };
 
-  // function to fetch the last route entered by the user.
-  async function fetchLastRoute() {
-    console.log(`Calling API: GET ${API_BASE}/users/${userId}/routes/last ...`);
-
-    try {
-      const res = await fetch(`${API_BASE}/users/${userId}/routes/last`);
-      console.log(`API call completed with status: ${res.status}`);
-
-      if (!res.ok) {
-        console.error(
-          "Failed to fetch last route:",
-          res.status,
-          await res.text()
-        );
-
-        // fallback fake last route
-        const fake = {
-          route_id: "27",
-          origin_stop: "Clare Hall",
-          destination_stop: "Ringsend Depot",
-        };
-        setLastRoute(fake);
-        console.log("Using fake last route:", fake);
-        return;
-      }
-
-      const body = await res.json();
-      console.log("Successfully fetched last route:", body);
-
-      if (body?.data) {
-        setLastRoute(body.data);
-      } else {
-        const fake = {
-          route_id: "27",
-          origin_stop: "Clare Hall",
-          destination_stop: "Ringsend Depot",
-        };
-        setLastRoute(fake);
-        console.log("Backend returned no data, using fake:", fake);
-      }
-    } catch (err) {
-      console.error("Error fetching last route:", err);
-      const fake = {
-        route_id: "27",
-        origin_stop: "Clare Hall",
-        destination_stop: "Ringsend Depot",
-      };
-      setLastRoute(fake);
-      console.log("Using fake last route after error:", fake);
-    } finally {
-      console.log("Finished attempting to call /users/{user_id}/routes/last");
-    }
-  }
-
   // function to add favourites to the favourite list
   async function handleStarClick() {
-    const route = query.trim();
+    const route = query.trim().toUpperCase();
 
-    if (!route) {
-      console.warn("No route entered. Cannot add favourite.");
+    if (!route) return;
+
+    if (!user) {
+      alert("Please sign in to save favourite routes.");
       return;
     }
 
-    // Prevent more than 3 favourites
-    if (favourites.includes(route)) {
-      console.log("ℹRoute already in favourites.");
+    try {
+      await setFavouriteRoute(route);
       setIsStarActive(true);
-      return;
-    }
-
-    if (favourites.length >= 3) {
-      console.warn("Maximum of 3 favourite routes reached.");
-      return;
-    }
-
-    const userId = "USER123";
-    console.log(
-      `Calling API: POST ${API_BASE}/users/${userId}/routes/favourite ...`
-    );
-    console.log("Payload (mock):", { route_id: route });
-
-    try {
-      const res = await fetch(`${API_BASE}/users/${userId}/routes/favourite`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ route_id: route }),
-      });
-
-      console.log(`API call completed with status: ${res.status}`);
-
-      if (!res.ok) {
-        console.error("Failed to add favourite route:", res.status);
-        console.log("Using mock success for now.");
-      }
-    } catch (err) {
-      console.error("Error sending POST request:", err);
-      console.log("Using mock success due to error.");
-    } finally {
-      console.log("Finished POST to /routes/favourite");
-    }
-
-    // Update UI
-    setFavourites([...favourites, route]);
-    setIsStarActive(true);
-  }
-
-  // Function to call the "most common route" endpoint
-  async function fetchMostCommonRoute() {
-    console.log(
-      `Calling API: GET ${API_BASE}/users/${userId}/routes/common ...`
-    );
-    try {
-      const res = await fetch(`${API_BASE}/users/${userId}/routes/common`);
-      console.log(`API call completed with status: ${res.status}`);
-
-      if (!res.ok) {
-        console.error(
-          "Failed to fetch most common route:",
-          res.status,
-          await res.text()
-        );
-        // define fake fallback if backend not up yet
-        const fakeRoute = {
-          route_id: "155",
-          origin_stop: "Blanchardstown",
-          destination_stop: "Bray Station",
-        };
-        setMostCommonRoute(fakeRoute);
-        console.log("Using fake most common route:", fakeRoute);
-        return;
-      }
-
-      const body = await res.json();
-      console.log("uccessfully fetched most common route:", body);
-
-      if (body?.data) {
-        setMostCommonRoute(body.data);
-      } else {
-        // fallback if empty
-        const fakeRoute = {
-          route_id: "155",
-          origin_stop: "Blanchardstown",
-          destination_stop: "Bray Station",
-        };
-        setMostCommonRoute(fakeRoute);
-        console.log("Backend returned no data, using fake route:", fakeRoute);
-      }
-    } catch (err) {
-      console.error("Error fetching most common route:", err);
-      const fakeRoute = {
-        route_id: "155",
-        origin_stop: "Blanchardstown",
-        destination_stop: "Bray Station",
-      };
-      setMostCommonRoute(fakeRoute);
-      console.log("Using fake most common route after error:", fakeRoute);
-    } finally {
-      console.log("Finished attempting to call /users/{user_id}/routes/common");
-    }
-  }
-
-  // Function to call the backend when search bar is clicked/focused
-  async function fetchFavouriteRoutes() {
-    const userId = "USER123"; // mock for now
-    console.log(
-      `Calling API: GET ${API_BASE}/users/${userId}/routes/favourite ...`
-    );
-
-    try {
-      const res = await fetch(`${API_BASE}/users/${userId}/routes/favourite`);
-      console.log(`API call completed with status: ${res.status}`);
-
-      if (!res.ok) {
-        console.error(
-          "Failed to fetch favourite route:",
-          res.status,
-          await res.text()
-        );
-        return;
-      }
-
-      const body = await res.json();
-      console.log("Successfully queried backend, response:", body);
-    } catch (err) {
-      console.error("Error fetching favourite route:", err);
-    } finally {
-      console.log(
-        "Finished attempting to call /users/{user_id}/routes/favourite"
-      );
+    } catch {
+      console.error("Failed to save favourite:", err);
+      alert("Failed to save favourite route");
     }
   }
 
@@ -238,14 +67,12 @@ export default function SearchBar({ onSearch }) {
             type="text"
             value={query}
             onChange={(e) => {
-              setQuery(e.target.value);
+              // Always store and display uppercase so route short names match GTFS.
+              setQuery(e.target.value.toUpperCase());
               setIsStarActive(false);
             }}
             onFocus={() => {
               setShowDropdown(true);
-              fetchFavouriteRoutes();
-              fetchMostCommonRoute();
-              fetchLastRoute();
             }}
             placeholder="Search for a route or stop..."
             className="searchbar-input"
@@ -277,15 +104,14 @@ export default function SearchBar({ onSearch }) {
       {/*Show favourite routes in the searchbar */}
       {showDropdown && (
         <ul className="dropdown-list">
-          {favourites.map((fav) => (
+          {user?.favourite_route && (
             <li
-              key={fav}
               className="dropdown-item"
-              onClick={() => handleFavouriteClick(fav)}
+              onClick={() => handleFavouriteClick(user.favourite_route)}
             >
-              ⭐ {fav}
+              ⭐ {user.favourite_route}
             </li>
-          ))}
+          )}
 
           {/*Show "most common route" below favourites */}
           {mostCommonRoute && (
@@ -293,22 +119,9 @@ export default function SearchBar({ onSearch }) {
               <li className="dropdown-divider"></li>
               <li
                 className="dropdown-item"
-                onClick={() => handleFavouriteClick(mostCommonRoute.route_id)}
+                onClick={() => handleFavouriteClick(mostCommonRoute)}
               >
-                <b>Most Common:</b> {mostCommonRoute.route_id}
-              </li>
-            </>
-          )}
-
-          {/* Show the last taken route in the searchbar*/}
-          {lastRoute && (
-            <>
-              <li className="dropdown-divider"></li>
-              <li
-                className="dropdown-item"
-                onClick={() => handleFavouriteClick(lastRoute.route_id)}
-              >
-                <b>Last Route:</b> {lastRoute.route_id}
+                <b>Most Common:</b> {mostCommonRoute}
               </li>
             </>
           )}

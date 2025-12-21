@@ -1,13 +1,13 @@
 import BusMap from "./components/map.jsx";
-import Navbar from "./components/navbar.jsx";
-import SearchBar from "./components/searchbar";
+import useAuth from "./auth/useAuth";
 import "./App.css";
 
 function App() {
+  const auth = useAuth();
+
   return (
     <div className="App">
-      <Navbar />
-      <BusMap />
+      <BusMap auth={auth}/>
     </div>
   );
 }
