@@ -1,11 +1,19 @@
 from typing import Optional, List
 
+def predict_delay_from_features(features: dict) -> float:
+    """
+    Predict delay (seconds) using a lightweight statistical model.
+    Uses real GTFS-derived features: avg delay, stddev, event count, time of day.
+    """
 
-def compute_average_delay(delays: List[int]) -> Optional[float]:
-    if not delays:
-        return None
-    return sum(delays) / len(delays)
+    if not features or features["avg_delay"] is None:
+        # Fallback: 30-second delay if no data is available
+        return 30.0
 
+    avg = features["avg_delay"] or 0
+    std = features["delay_std"] or 0
+    count = features["event_count"] or 0
+    hour = int(features["hour_of_day"])
 
 def predict_delay_seconds(recent_delays_rows) -> float:
     """
