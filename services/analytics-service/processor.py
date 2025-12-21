@@ -1,5 +1,7 @@
 import os
 import redis
+import json
+from collections import deque
 
 # Redis client (one per process, reused)
 redis_client = redis.Redis(
@@ -13,6 +15,9 @@ MAX_WINDOW = 50
 # Simple counters for periodic logging
 trip_counter = 0
 vehicle_counter = 0
+
+stop_windows = {}
+WINDOW_SECONDS = 300  # 5 minutes
 
 def fetch_recent_trip_delays(route_id: str, stop_id: str, limit: int = 50) -> list[int]:
     key = f"delays:route:{route_id}:stop:{stop_id}"
@@ -31,6 +36,7 @@ def record_delay(route_id: str, stop_id: str, arrival_delay: int | None):
     pipe.execute()
 
 def process_message(msg: dict) -> None:
+
     print("[DEBUG] Received Kafka message:", msg)
     global trip_counter, vehicle_counter
 
@@ -58,3 +64,62 @@ def process_message(msg: dict) -> None:
 
     else:
         print(f"[Analytics] Unknown message type: {msg_type}")
+
+def process_trip_update(msg: dict):
+    stop_id = msg.get("stop_id")
+    ts = msg.get("timestamp_utc")
+
+    if not stop_id or ts is None:
+        return
+
+    delay = msg.get("arrival_delay")
+    if delay is None:
+        delay = 0
+
+    dq = stop_windows.setdefault(stop_id, deque())
+    dq.append((ts, delay))
+
+    # evict old entries
+    while dq and ts - dq[0][0] > WINDOW_SECONDS:
+        dq.popleft()
+
+    if not dq:
+        stop_windows.pop(stop_id, None)
+        return
+
+    arrivals = len(dq)
+    avg_delay = sum(d for _, d in dq) / arrivals
+
+    score = 0
+
+    # Volume component (soft)
+    if arrivals >= 3:
+        score += 1
+    if arrivals >= 6:
+        score += 2
+
+    # Delay component (dominant)
+    if avg_delay >= 180:   # 3 minutes
+        score += 1
+    if avg_delay >= 420:   # 7 minutes
+        score += 2
+
+    if score <= 1:
+        rating = "green"
+    elif score <= 3:
+        rating = "orange"
+    else:
+        rating = "red"
+
+    redis_client.set(
+        f"stop:busyness:{stop_id}",
+        json.dumps({
+            "stop_id": stop_id,
+            "rating": rating,
+            "score": score,
+            "arrivals_last_5m": arrivals,
+            "avg_delay_seconds": int(avg_delay),
+            "computed_at_utc": ts,
+        }),
+        ex=WINDOW_SECONDS,
+    )

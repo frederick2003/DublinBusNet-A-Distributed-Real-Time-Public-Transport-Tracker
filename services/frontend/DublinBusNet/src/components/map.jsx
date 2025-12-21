@@ -18,6 +18,7 @@ export default function BusMap({ auth }) {
   const markersRef = useRef(new Map());
   const pollTimer = useRef(null); // optional: for auto-refresh
   const routeLookup = useRef(new Map());
+  const stopBusynessRef = useRef(new Map());
   const routeReverseLookup = useRef(new Map());
   const [showAuth, setShowAuth] = React.useState(false);
   const [authMode, setAuthMode] = React.useState("choice");
@@ -249,35 +250,58 @@ export default function BusMap({ auth }) {
   useEffect(() => {
     if (!map.current) return;
 
-    // Clear any existing polling
-    if (pollTimer.current) {
-      clearInterval(pollTimer.current);
-      pollTimer.current = null;
-    }
+    let cancelled = false;
 
-    // Decide what to poll based on state
-    const poll = () => {
-      if (selectedRoute) {
-        const { route_id, direction_id } = selectedRoute;
-        fetchAndRenderRouteBuses(route_id, direction_id);
-      } else {
-        fetchAndRenderBuses();
+    const poll = async () => {
+      if (cancelled) return;
+
+      try {
+        if (selectedRoute) {
+          const { route_id, direction_id } = selectedRoute;
+          await fetchAndRenderRouteBuses(route_id, direction_id);
+        } else {
+          await fetchAndRenderBuses();
+        }
+      } catch (err) {
+        console.error("Polling failed:", err);
+      } finally {
+        if (!cancelled) {
+          pollTimer.current = setTimeout(poll, 4000);
+        }
       }
     };
 
-    // Initial fetch
+    // Start immediately
     poll();
 
-    // Poll every 30 seconds
-    pollTimer.current = setInterval(poll, 30_000);
-
     return () => {
+      cancelled = true;
       if (pollTimer.current) {
-        clearInterval(pollTimer.current);
+        clearTimeout(pollTimer.current);
         pollTimer.current = null;
       }
     };
   }, [selectedRoute]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadStopsWithBusyness() {
+      await loadStopBusyness();
+      if (!cancelled) {
+        await loadStops();
+      }
+    }
+
+    loadStopsWithBusyness();
+
+    const interval = setInterval(loadStopsWithBusyness, 60_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
 
   async function fetchAndRenderRouteBuses(route_id, direction_id) {
     console.log(
@@ -358,6 +382,29 @@ export default function BusMap({ auth }) {
     }
   }
 
+  async function loadStopBusyness() {
+    try {
+      const res = await fetch("/api/stops/busyness");
+      const body = await res.json();
+
+      if (!body.success || !Array.isArray(body.data)) return;
+
+      stopBusynessRef.current.clear();
+
+      body.data.forEach((item) => {
+        stopBusynessRef.current.set(item.stop_id, item);
+      });
+
+      console.log(
+        "[Stops] Loaded busyness for",
+        stopBusynessRef.current.size,
+        "stops"
+      );
+    } catch (err) {
+      console.error("Failed to load stop busyness", err);
+    }
+  }
+
   async function loadStops() {
     try {
       const response = await fetch("/data/stops.txt");
@@ -378,6 +425,8 @@ export default function BusMap({ auth }) {
 
           if (Number.isNaN(lat) || Number.isNaN(lon)) return null;
 
+          const busyness = stopBusynessRef.current.get(obj.stop_id);
+
           return {
             type: "Feature",
             geometry: {
@@ -387,6 +436,9 @@ export default function BusMap({ auth }) {
             properties: {
               stop_id: obj.stop_id,
               stop_name: obj.stop_name,
+              rating: busyness?.rating ?? "unknown",
+              arrivals: busyness?.arrivals_last_5m ?? 0,
+              avg_delay: busyness?.avg_delay_seconds ?? 0,
             },
           };
         })
@@ -421,19 +473,85 @@ export default function BusMap({ auth }) {
               100,
               6,
             ],
-            "circle-color": "#007AFF",
+            "circle-color": [
+              "match",
+              ["get", "rating"],
+              "green",
+              "#2ecc71", // green
+              "orange",
+              "#f39c12", // orange
+              "red",
+              "#e74c3c", // red
+              "#9ca3af", // default / unknown
+            ],
             "circle-stroke-width": 1,
             "circle-stroke-color": "#ffffff",
           },
         });
 
         // Popup on click
-        map.current.on("click", "bus-stops-layer", (e) => {
+        map.current.on("click", "bus-stops-layer", async (e) => {
           const p = e.features[0].properties;
-          new maplibregl.Popup()
+          const stopId = p.stop_id;
+
+          const popup = new maplibregl.Popup()
             .setLngLat(e.lngLat)
-            .setHTML(`<strong>${p.stop_name}</strong><br>ID: ${p.stop_id}`)
+            .setHTML(
+              `
+      <div style="font-size:12px">
+        <strong>${p.stop_name}</strong><br/>
+        ID: ${stopId}<br/>
+        <em>Loading analytics…</em>
+      </div>
+    `
+            )
             .addTo(map.current);
+
+          try {
+            const res = await fetch(`/api/stops/${stopId}/busyness`);
+            const body = await res.json();
+
+            if (!body.success) {
+              popup.setHTML(`
+        <div style="font-size:12px">
+          <strong>${p.stop_name}</strong><br/>
+          ID: ${stopId}<br/>
+          <em>No analytics available</em>
+        </div>
+      `);
+              return;
+            }
+
+            const d = body.data;
+
+            const ratingEmoji =
+              d.rating === "green"
+                ? "🟢"
+                : d.rating === "orange"
+                ? "🟠"
+                : d.rating === "red"
+                ? "🔴"
+                : "⚪";
+
+            popup.setHTML(`
+      <div style="font-size:12px;line-height:1.3">
+        <strong>${p.stop_name}</strong><br/>
+        ID: ${stopId}<br/><br/>
+        <strong>Busyness:</strong> ${ratingEmoji} ${d.rating}<br/>
+        <strong>Arrivals (5m):</strong> ${d.arrivals_last_5m}<br/>
+        <strong>Avg delay:</strong> ${d.avg_delay_seconds}s
+      </div>
+    `);
+          } catch (err) {
+            console.error("Failed to load stop analytics", err);
+            popup.setHTML(`
+      <div style="font-size:12px">
+        <strong>${p.stop_name}</strong><br/>
+        ID: ${stopId}<br/>
+        <em>Error loading analytics</em>
+      </div>
+    `);
+          }
         });
 
         // Change cursor on hover
@@ -463,14 +581,13 @@ export default function BusMap({ auth }) {
 
       stillPresent.add(vehicle_id);
       const friendlyRoute = routeLookup.current.get(route_id) || route_id;
+      console.log(friendlyRoute);
 
       const popupHtml = `
       <div style="font-size:12px;line-height:1.2">
         <strong>Route:</strong> ${friendlyRoute}<br/>
         <strong>Vehicle:</strong> ${vehicle_id}<br/>
         <strong>Direction:</strong> ${direction_id}<br/>
-        <strong>Speed:</strong> ${speed ?? "N/A"}<br/>
-        <strong>Updated:</strong> ${new Date(timestamp).toLocaleTimeString()}
       </div>
     `;
 

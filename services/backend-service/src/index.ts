@@ -6,6 +6,7 @@ import authRoutes from "./routes/auth";
 import { ensureSeeded } from "./services/busCache";
 import userRoutes from "./routes/users";
 import predictionRoutes from "./routes/predictions";
+import stopsRoutes from "./routes/stops";
 
 const app = express();
 app.use(cors());
@@ -15,6 +16,8 @@ app.use(morgan("dev"));
 app.use("/api/auth", authRoutes);
 
 app.use("/api/users", userRoutes);
+
+app.use("/api/stops", stopsRoutes);
 
 app.use("/api", predictionRoutes);
 
