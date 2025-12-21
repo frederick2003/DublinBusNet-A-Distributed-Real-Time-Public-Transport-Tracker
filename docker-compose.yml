@@ -38,7 +38,7 @@ services:
   backend:
     build:
       context: ./services/backend-service
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.compose
     container_name: backend
     ports:
       - "3000:3000"
@@ -74,20 +74,6 @@ services:
       - redis
     restart: unless-stopped
 
-  #legacy-ingestion:
-  #env_file:
-  #- .env
-  #build:
-  #context: ./services/ingestion-service
-  #dockerfile: Dockerfile.backend
-  #container_name: ingestion_backend
-  #environment:
-  #- REDIS_URL=redis://redis:6379
-  #- POLL_INTERVAL=30
-  #depends_on:
-  #- redis
-  #restart: unless-stopped
-
   kafka-ingestion:
     build:
       context: ./services/ingestion-service
@@ -105,7 +91,7 @@ services:
   frontend:
     build:
       context: ./services/frontend/DublinBusNet
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.compose
     container_name: frontend
     ports:
       - "8080:80"

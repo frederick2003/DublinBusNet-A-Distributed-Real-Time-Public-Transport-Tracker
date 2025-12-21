@@ -1,7 +1,8 @@
 node_modules
 dist
-.env
-.env.*
-npm-debug.log
+.git
 .vscode
-Dockerfile
+.idea
+npm-debug.log
+Dockerfile*
+docker-compose*
