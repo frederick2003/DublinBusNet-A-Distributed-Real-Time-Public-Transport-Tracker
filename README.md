@@ -18,7 +18,7 @@ This project is developed as part of the **COMP41720 Distributed Systems capston
 
 ---
 
-## ⚙️ System Architecture
+## System Architecture
 
 We use a **microservices-based distributed architecture** combining both **asynchronous** (Kafka) and **synchronous** (REST/gRPC) communication.
 
